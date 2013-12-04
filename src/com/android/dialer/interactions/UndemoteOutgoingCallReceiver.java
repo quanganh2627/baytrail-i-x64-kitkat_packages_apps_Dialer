@@ -72,14 +72,16 @@ public class UndemoteOutgoingCallReceiver extends BroadcastReceiver {
             return NO_CONTACT_FOUND;
         }
         try {
-            if (cursor.moveToFirst()) {
+            if (cursor != null && cursor.moveToFirst()) {
                 final long id = cursor.getLong(0);
                 return id;
             } else {
                 return NO_CONTACT_FOUND;
             }
         } finally {
-            cursor.close();
+            if (cursor != null) {
+                cursor.close();
+            }
         }
     }
 }
