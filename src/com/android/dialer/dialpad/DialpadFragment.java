@@ -364,19 +364,6 @@ public class DialpadFragment extends Fragment
         if (state != null) {
             mDigitsFilledByIntent = state.getBoolean(PREF_DIGITS_FILLED_BY_INTENT);
         }
-
-        // if the mToneGenerator creation fails, just continue without it.  It is
-        // a local audio signal, and is not as important as the dtmf tone itself.
-        synchronized (mToneGeneratorLock) {
-            if (mToneGenerator == null) {
-                try {
-                    mToneGenerator = new ToneGenerator(DIAL_TONE_STREAM_TYPE, TONE_RELATIVE_VOLUME);
-                } catch (RuntimeException e) {
-                    Log.w(TAG, "Exception caught while creating local tone generator: " + e);
-                    mToneGenerator = null;
-                }
-            }
-        }
     }
 
     @Override
@@ -700,6 +687,18 @@ public class DialpadFragment extends Fragment
 
         stopWatch.lap("hptc");
 
+        // if the mToneGenerator creation fails, just continue without it.  It is
+        // a local audio signal, and is not as important as the dtmf tone itself.
+        synchronized (mToneGeneratorLock) {
+            if (mToneGenerator == null) {
+                try {
+                    mToneGenerator = new ToneGenerator(DIAL_TONE_STREAM_TYPE, TONE_RELATIVE_VOLUME);
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "Exception caught while creating local tone generator: " + e);
+                    mToneGenerator = null;
+                }
+            }
+        }
         stopWatch.lap("tg");
 
         mPressedDialpadKeys.clear();
@@ -760,6 +759,12 @@ public class DialpadFragment extends Fragment
         stopTone();
         mPressedDialpadKeys.clear();
 
+        synchronized (mToneGeneratorLock) {
+            if (mToneGenerator != null) {
+                mToneGenerator.release();
+                mToneGenerator = null;
+            }
+        }
         // TODO: I wonder if we should not check if the AsyncTask that
         // lookup the last dialed number has completed.
         mLastNumberDialed = EMPTY_NUMBER;  // Since we are going to query again, free stale number.
@@ -774,17 +779,6 @@ public class DialpadFragment extends Fragment
         if (mClearDigitsOnStop) {
             mClearDigitsOnStop = false;
             clearDialpad();
-        }
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        synchronized (mToneGeneratorLock) {
-            if (mToneGenerator != null) {
-                mToneGenerator.release();
-                mToneGenerator = null;
-            }
         }
     }
 
