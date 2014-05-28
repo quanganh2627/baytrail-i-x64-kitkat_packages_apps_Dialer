@@ -590,6 +590,7 @@ public class DialerDatabaseHelper extends SQLiteOpenHelper {
     private void removeUpdatedContacts(SQLiteDatabase db, Cursor updatedContactCursor) {
         db.beginTransaction();
         try {
+            updatedContactCursor.moveToPosition(-1);
             while (updatedContactCursor.moveToNext()) {
                 final Long contactId = updatedContactCursor.getLong(PhoneQuery.PHONE_CONTACT_ID);
 
