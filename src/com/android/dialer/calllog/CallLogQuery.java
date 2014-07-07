@@ -23,6 +23,8 @@ import android.provider.CallLog.Calls;
  * The query for the call log table.
  */
 public final class CallLogQuery {
+    private static final String Calls_IMSI = "imsi";
+
     // If you alter this, you must also alter the method that inserts a fake row to the headers
     // in the CallLogQueryHandler class called createHeaderCursorFor().
     public static final String[] _PROJECTION = new String[] {
@@ -44,6 +46,7 @@ public final class CallLogQuery {
             Calls.CACHED_FORMATTED_NUMBER,   // 15
             Calls.IS_READ,                   // 16
             Calls.NUMBER_PRESENTATION,       // 17
+            Calls_IMSI,                      // 18
     };
 
     public static final int ID = 0;
@@ -64,4 +67,7 @@ public final class CallLogQuery {
     public static final int CACHED_FORMATTED_NUMBER = 15;
     public static final int IS_READ = 16;
     public static final int NUMBER_PRESENTATION = 17;
+    public static final int IMSI = 18;
+    /** The index of the synthetic "section" column in the extended projection. */
+    public static final int SECTION = 19;
 }

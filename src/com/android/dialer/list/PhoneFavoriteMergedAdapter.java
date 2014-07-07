@@ -27,6 +27,7 @@ import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 
+import com.android.contacts.common.ContactsUtils;
 import com.android.dialer.R;
 import com.android.dialer.calllog.CallLogAdapter;
 import com.android.dialer.calllog.CallLogNotificationsHelper;
@@ -108,6 +109,15 @@ public class PhoneFavoriteMergedAdapter extends BaseAdapter {
         final Resources resources = context.getResources();
         mContext = context;
         mFragment = fragment;
+        /** In JB, using left and right padding, in KK, no such layout ...
+		if (ContactsUtils.isDualSimSupported()) {
+            mItemPaddingLeft = resources.getDimensionPixelSize(R.dimen.detail_item_vertical_margin);
+            mItemPaddingRight = resources.getDimensionPixelSize(R.dimen.detail_item_vertical_margin) * 3;
+        } else {
+            mItemPaddingLeft = resources.getDimensionPixelSize(R.dimen.detail_item_side_margin);
+            mItemPaddingRight = resources.getDimensionPixelSize(R.dimen.list_visible_scrollbar_padding);
+        }
+		**/
         mCallLogPadding = resources.getDimensionPixelSize(R.dimen.recent_call_log_item_padding);
         mContactTileAdapter = contactTileAdapter;
         mCallLogAdapter = callLogAdapter;

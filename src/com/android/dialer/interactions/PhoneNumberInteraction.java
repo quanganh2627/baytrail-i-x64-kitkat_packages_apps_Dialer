@@ -46,13 +46,14 @@ import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.ListAdapter;
 import android.widget.TextView;
-
+import com.android.contacts.common.ContactsUtils;
 import com.android.contacts.common.CallUtil;
 import com.android.contacts.common.Collapser;
 import com.android.contacts.common.Collapser.Collapsible;
 import com.android.contacts.common.MoreContactUtils;
 import com.android.contacts.common.activity.TransactionSafeActivity;
 import com.android.contacts.common.util.ContactDisplayUtils;
+import com.android.contacts.common.util.DualSimConstants;
 import com.android.dialer.R;
 import com.android.dialer.contact.ContactUpdateService;
 import com.google.common.annotations.VisibleForTesting;
@@ -72,6 +73,13 @@ import java.util.List;
  */
 public class PhoneNumberInteraction implements OnLoadCompleteListener<Cursor> {
     private static final String TAG = PhoneNumberInteraction.class.getSimpleName();
+
+    @VisibleForTesting
+    /* package */ enum InteractionType {
+        PHONE_CALL,
+        PHONE_CALL_2,
+        SMS
+    }
 
     /**
      * A model object for capturing a phone number for a given contact.
@@ -322,7 +330,17 @@ public class PhoneNumberInteraction implements OnLoadCompleteListener<Cursor> {
                         Intent.ACTION_SENDTO, Uri.fromParts("sms", phoneNumber, null));
                 break;
             default:
-                intent = CallUtil.getCallIntent(phoneNumber, callOrigin);
+                if (ContactsUtils.isDualSimSupported()) {
+                    if (interactionType == ContactDisplayUtils.INTERACTION_CALL2) {
+                        intent = CallUtil.getDualSimCallIntent(phoneNumber,
+                                DualSimConstants.DSDS_SLOT_2_ID, callOrigin);
+                    } else {
+                        intent = ContactsUtils.getDualSimCallIntent(phoneNumber,
+                                DualSimConstants.DSDS_SLOT_1_ID, callOrigin);
+                    }
+                } else {
+                    intent = CallUtil.getCallIntent(phoneNumber, callOrigin);
+                }
                 break;
         }
         context.startActivity(intent);
@@ -480,6 +498,11 @@ public class PhoneNumberInteraction implements OnLoadCompleteListener<Cursor> {
                 .startInteraction(uri, useDefault);
     }
 
+    public static void startInteractionForPhoneCall2(TransactionSafeActivity activity, Uri uri) {
+        (new PhoneNumberInteraction(activity, ContactDisplayUtils.INTERACTION_CALL2, null))
+                .startInteraction(uri);
+    }
+
     /**
      * @param activity that is calling this interaction. This must be of type
      * {@link TransactionSafeActivity} because we need to check on the activity state after the
@@ -492,6 +515,12 @@ public class PhoneNumberInteraction implements OnLoadCompleteListener<Cursor> {
             String callOrigin) {
         (new PhoneNumberInteraction(activity, ContactDisplayUtils.INTERACTION_CALL, null, callOrigin))
                 .startInteraction(uri, true);
+    }
+
+    public static void startInteractionForPhoneCall2(TransactionSafeActivity activity, Uri uri,
+            String callOrigin) {
+        (new PhoneNumberInteraction(activity, ContactDisplayUtils.INTERACTION_CALL2, null, callOrigin))
+                .startInteraction(uri);
     }
 
     /**

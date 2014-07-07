@@ -172,7 +172,27 @@
     <string name="no_favorites" msgid="5212485868783382971">"您最愛的聯絡人和經常通話的聯絡人\n都會顯示在這裡，\n可以直接打給他們！"</string>
     <string name="contact_tooltip" msgid="7817483485692282287">"輕按圖片即可查看所有號碼，按住圖片則可重新排序"</string>
     <string name="description_dismiss" msgid="2146276780562549643">"關閉"</string>
+
     <string name="remove_contact" msgid="1080555335283662961">"移除"</string>
     <string name="favorites_menu_speed_dial" msgid="3832518092014707628">"快速撥號"</string>
     <string name="favorites_menu_all_contacts" msgid="992506284449891186">"所有聯絡人"</string>
+
+    <!--For DSDS-->
+    <string name="menu_filter_call_type">通話類型</string>
+    <string name="menu_filter_call_origin">通話來源</string>
+    <string name="menu_show_sip_calls_only">僅顯示網路電話</string>
+    <string name="menu_show_sim_1_calls_only">僅顯示 1 卡電話</string>
+    <string name="menu_show_sim_2_calls_only">僅顯示 2 卡電話</string>
+    <string name="menu_show_all_origins">顯示所有來源</string>
+
+    <string name="select_sim_title">選擇 SIM 卡</string>
+    <string name="sim1Text">1 卡</string>
+    <string name="sim2Text">2 卡</string>
+    <string name="internetText">網路</string>
+
+    <string name="voicemail_of">"<xliff:g id="SIM">%s</xliff:g>語音信箱"</string>
+
+    <string name="clearCallLogConfirmation_ds">"即將刪除您所有來自 <xliff:g id="SIM">%1$s</xliff:g>的通話記錄。"</string>
+    <string name="clearSipCallLogConfirmation">"即將刪除您所有的網路通話記錄。"</string>
+
 </resources>

@@ -20,6 +20,7 @@ import android.net.Uri;
 import android.provider.CallLog.Calls;
 import android.provider.ContactsContract.CommonDataKinds.Phone;
 
+import com.android.contacts.common.util.DualSimConstants;
 /**
  * The details of a phone call to be shown in the UI.
  */
@@ -59,10 +60,17 @@ public class PhoneCallDetails {
      * This is meant to store the high-res photo only.
      */
     public final Uri photoUri;
+
     /**
      * The source type of the contact associated with this call.
      */
     public final int sourceType;
+
+    /** The imsi of sim card where the call is placed from. */
+    public final String imsi;
+    /** The index of sim slot where the sim card located in. */
+    public final int simIndex;
+
 
     /** Create the details for a call with a number not associated with a contact. */
     public PhoneCallDetails(CharSequence number, int numberPresentation,
@@ -71,13 +79,27 @@ public class PhoneCallDetails {
         this(number, numberPresentation, formattedNumber, countryIso, geocode,
                 callTypes, date, duration, "", 0, "", null, null, 0);
     }
-
+    public PhoneCallDetails(CharSequence number, int numberPresentation,
+            CharSequence formattedNumber, String countryIso, String geocode,
+            int[] callTypes, long date, long duration,
+            String imsi, int simIndex) {
+        this(number, numberPresentation, formattedNumber, countryIso, geocode,
+                callTypes, date, duration, "", 0, "", null, null, 0, imsi, simIndex);
+    }
     /** Create the details for a call with a number associated with a contact. */
     public PhoneCallDetails(CharSequence number, int numberPresentation,
             CharSequence formattedNumber, String countryIso, String geocode,
             int[] callTypes, long date, long duration, CharSequence name,
             int numberType, CharSequence numberLabel, Uri contactUri,
             Uri photoUri, int sourceType) {
+        this(number, numberPresentation, formattedNumber, countryIso, geocode, callTypes, date, duration, "", 0, "",
+                null, null, 0, null, DualSimConstants.DSDS_INVALID_SLOT_ID);
+	}
+    public PhoneCallDetails(CharSequence number, int numberPresentation,
+            CharSequence formattedNumber, String countryIso, String geocode,
+            int[] callTypes, long date, long duration, CharSequence name,
+            int numberType, CharSequence numberLabel, Uri contactUri,
+            Uri photoUri, int sourceType, String imsi, int simIndex) {
         this.number = number;
         this.numberPresentation = numberPresentation;
         this.formattedNumber = formattedNumber;
@@ -91,6 +113,10 @@ public class PhoneCallDetails {
         this.numberLabel = numberLabel;
         this.contactUri = contactUri;
         this.photoUri = photoUri;
+
         this.sourceType = sourceType;
+
+        this.imsi = imsi;
+        this.simIndex = simIndex;
     }
 }

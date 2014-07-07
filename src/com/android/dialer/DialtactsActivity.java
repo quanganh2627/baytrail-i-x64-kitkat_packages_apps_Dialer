@@ -44,6 +44,7 @@ import android.text.TextWatcher;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup.LayoutParams;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
@@ -53,12 +54,14 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.Toast;
-
+import com.android.contacts.common.ContactsUtils;
 import com.android.contacts.common.CallUtil;
 import com.android.contacts.common.activity.TransactionSafeActivity;
 import com.android.contacts.common.dialog.ClearFrequentsDialog;
 import com.android.contacts.common.interactions.ImportExportDialogFragment;
 import com.android.contacts.common.list.OnPhoneNumberPickerActionListener;
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
 import com.android.dialer.calllog.CallLogActivity;
 import com.android.dialer.database.DialerDatabaseHelper;
 import com.android.dialer.dialpad.DialpadFragment;
@@ -80,7 +83,9 @@ import com.android.internal.telephony.ITelephony;
 
 import java.util.ArrayList;
 import java.util.List;
-
+import android.graphics.drawable.Drawable;
+import android.content.res.Resources;
+import android.widget.ImageButton;
 /**
  * The dialer tab's title is 'phone', a more common name (see strings.xml).
  */
@@ -180,7 +185,16 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
     private View mSearchViewCloseButton;
     private View mVoiceSearchButton;
     private EditText mSearchView;
+    //DSDS: Need to check
+    private boolean mIsDualSimSupported = ContactsUtils.isDualSimSupported();
 
+    private View mDialButton2;
+    private Drawable mDialButtonBackgroundEmergency;
+    private Drawable mDialButtonBackgroundEmergency2;
+    private Drawable mDialButtonBackgroundActive;
+    private Drawable mDialButtonBackgroundActive2;
+    private Drawable mDialButtonBackgroundInactive;
+    private Drawable mDialButtonBackgroundInactive2;
     private String mSearchQuery;
 
     private DialerDatabaseHelper mDialerDatabaseHelper;
@@ -212,6 +226,12 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
                     PhoneNumberInteraction.startInteractionForPhoneCall(
                         DialtactsActivity.this, dataUri, getCallOrigin());
                     mClearSearchOnPause = true;
+                }
+
+                @Override
+                public void onPickPhoneNumberAction2(Uri dataUri) {
+                    PhoneNumberInteraction.startInteractionForPhoneCall2(
+                            DialtactsActivity.this, dataUri, getCallOrigin());
                 }
 
                 @Override
@@ -297,8 +317,9 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
 
         final Intent intent = getIntent();
         fixIntent(intent);
-
-        setContentView(R.layout.dialtacts_activity);
+        int resource = mIsDualSimSupported ?
+                R.layout.dialtacts_activity_ds : R.layout.dialtacts_activity;
+        setContentView(resource);
 
         getActionBar().hide();
 
@@ -475,6 +496,9 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
                 // Dial button was pressed; tell the Dialpad fragment
                 mDialpadFragment.dialButtonPressed();
                 break;
+            case R.id.dialButton2:
+                mDialpadFragment.dialButtonPressed(DualSimConstants.DSDS_SLOT_2_ID);
+                return;
             case R.id.call_history_button:
                 // Use explicit CallLogActivity intent instead of ACTION_VIEW +
                 // CONTENT_TYPE, so that we always open our call log from our dialer
@@ -511,6 +535,10 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
                 // Dial button was pressed; tell the Dialpad fragment
                 mDialpadFragment.dialButtonPressed();
                 return true;  // Consume the event
+            }
+            case R.id.dialButton2: {
+                mDialpadFragment.dialButtonPressed(DualSimConstants.DSDS_SLOT_2_ID);
+                return true;
             }
             default: {
                 Log.wtf(TAG, "Unexpected onClick event from " + view);
@@ -550,6 +578,9 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
         ft.show(mDialpadFragment);
         ft.commit();
         mDialButton.setVisibility(shouldShowOnscreenDialButton() ? View.VISIBLE : View.GONE);
+		if (mIsDualSimSupported) {
+              mDialButton2.setVisibility(shouldShowOnscreenDialButton() ? View.VISIBLE : View.GONE);
+        }
         mDialpadButton.setVisibility(View.GONE);
 
         if (mDialpadOverflowMenu == null) {
@@ -573,6 +604,9 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
         ft.hide(mDialpadFragment);
         ft.commit();
         mDialButton.setVisibility(View.GONE);
+		if (mIsDualSimSupported) {
+              mDialButton2.setVisibility(View.GONE);
+        }
         mDialpadButton.setVisibility(View.VISIBLE);
         mMenuButton.setOnTouchListener(mOverflowMenu.getDragToOpenListener());
     }
@@ -694,8 +728,12 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
 
         mDialButton = findViewById(R.id.dial_button);
         mDialButton.setOnClickListener(this);
-        mDialButton.setOnLongClickListener(this);
-
+		mDialButton.setOnLongClickListener(this);
+        mDialButton2 = findViewById(R.id.dialButton2);
+		if (mIsDualSimSupported && mDialButton2 != null) {
+            mDialButton2.setOnClickListener(this);
+            mDialButton2.setOnLongClickListener(this);
+        }
         mDialpadButton = findViewById(R.id.dialpad_button);
         mDialpadButton.setOnClickListener(this);
     }
@@ -845,9 +883,31 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
         }
 
         @Override
+        public void onContactSelected2(Uri contactUri) {
+            PhoneNumberInteraction.startInteractionForPhoneCall2(
+                    DialtactsActivity.this, contactUri, getCallOrigin());
+        }
+
+        @Override
         public void onCallNumberDirectly(String phoneNumber) {
-            Intent intent = CallUtil.getCallIntent(phoneNumber, getCallOrigin());
+            Intent intent = null;
+            if (mIsDualSimSupported) {
+                intent = CallUtil.getDualSimCallIntent(phoneNumber,
+                        DualSimConstants.DSDS_SLOT_1_ID);
+            } else {
+                intent = CallUtil.getCallIntent(phoneNumber, getCallOrigin());
+//            Intent intent = CallUtil.getCallIntent(phoneNumber, getCallOrigin());
+            }
             startActivity(intent);
+        }
+
+        @Override
+        public void onCallNumberDirectly2(String phoneNumber) {
+            if (mIsDualSimSupported) {
+                Intent intent = CallUtil.getDualSimCallIntent(phoneNumber,
+                        DualSimConstants.DSDS_SLOT_2_ID);
+                startActivity(intent);
+            }
         }
     };
 
@@ -959,9 +1019,13 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
     /** Returns an Intent to launch Call Settings screen */
     public static Intent getCallSettingsIntent() {
         final Intent intent = new Intent(Intent.ACTION_MAIN);
-        intent.setClassName(PHONE_PACKAGE, CALL_SETTINGS_CLASS_NAME);
+        if (ContactsUtils.isDualSimSupported()) {
+            intent.setClassName(PHONE_PACKAGE, DualSimConstants.CALL_SETTINGS_CLASS_NAME_DS);
+        } else {
+            intent.setClassName(PHONE_PACKAGE, CALL_SETTINGS_CLASS_NAME);
+        }
         intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        return intent;
+        return intent;	
     }
 
     @Override
@@ -1006,8 +1070,53 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
 
     @Override
     public void setDialButtonEnabled(boolean enabled) {
+        ImageButton button = null;
+		Resources r = getResources();
+        if (mIsDualSimSupported) {
+            // use resource selector to replace hard code
+            mDialButtonBackgroundEmergency = r.getDrawable(R.drawable.ic_dial_action_emergency_call_1);
+            mDialButtonBackgroundEmergency2 = r.getDrawable(R.drawable.ic_dial_action_emergency_call_2);
+            mDialButtonBackgroundActive = r.getDrawable(R.drawable.ic_dial_action_call_active_1);
+            mDialButtonBackgroundActive2 = r.getDrawable(R.drawable.ic_dial_action_call_active_2);
+            mDialButtonBackgroundInactive = r.getDrawable(R.drawable.ic_dial_action_call_inactive_1);
+            mDialButtonBackgroundInactive2 = r.getDrawable(R.drawable.ic_dial_action_call_inactive_2);
+        }
         if (mDialButton != null) {
-            mDialButton.setEnabled(enabled);
+            button = (ImageButton)mDialButton;
+            if (mIsDualSimSupported) {
+                if (!SimUtils.isSim1Ready(mDialpadFragment.getActivity())) {
+                    if (!SimUtils.isSim2Ready(mDialpadFragment.getActivity())) {
+                        button.setImageDrawable(mDialButtonBackgroundEmergency);
+                    } else {
+                        button.setImageDrawable(mDialButtonBackgroundInactive);
+                        enabled = false;
+                    }
+                } else {
+                    button.setImageDrawable(mDialButtonBackgroundActive);
+                }
+                button.setEnabled(enabled);
+            } else {
+                   mDialButton.setEnabled(enabled);
+            }
+        }
+        if (mDialButton2 != null) {
+            button = (ImageButton)mDialButton2;
+            if (mIsDualSimSupported) {
+                if (!SimUtils.isSim2Ready(mDialpadFragment.getActivity())) {
+                    if (!SimUtils.isSim1Ready(mDialpadFragment.getActivity())) {
+                        button.setImageDrawable(mDialButtonBackgroundEmergency2);
+                    } else {
+                        button.setImageDrawable(mDialButtonBackgroundInactive2);
+                        enabled = false;
+                    }      
+                } else {
+                    button.setImageDrawable(mDialButtonBackgroundActive2);
+                }
+                button.setEnabled(enabled);
+            } else {
+                mDialButton2.setVisibility(View.GONE);
+                mDialButton2 = null;
+            }
         }
     }
 
@@ -1031,6 +1140,11 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
     public static Intent getAddNumberToContactIntent(CharSequence text) {
         final Intent intent = new Intent(Intent.ACTION_INSERT_OR_EDIT);
         intent.putExtra(Intents.Insert.PHONE, text);
+        if (ContactsUtils.isDualSimSupported()) {
+            intent.setClassName(PHONE_PACKAGE, DualSimConstants.CALL_SETTINGS_CLASS_NAME_DS);
+        } else {
+            intent.setClassName(PHONE_PACKAGE, CALL_SETTINGS_CLASS_NAME);
+        }
         intent.setType(Contacts.CONTENT_ITEM_TYPE);
         return intent;
     }

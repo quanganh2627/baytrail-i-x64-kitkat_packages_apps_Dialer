@@ -19,18 +19,26 @@ package com.android.dialer.calllog;
 import android.app.Activity;
 import android.app.KeyguardManager;
 import android.app.ListFragment;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
+import android.content.SharedPreferences.Editor;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.RemoteException;
+import android.os.ServiceManager;
+import android.preference.PreferenceManager;
 import android.provider.CallLog;
 import android.provider.CallLog.Calls;
 import android.provider.ContactsContract;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -40,6 +48,10 @@ import android.widget.TextView;
 import com.android.common.io.MoreCloseables;
 import com.android.contacts.common.CallUtil;
 import com.android.contacts.common.GeoUtil;
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
+import com.android.contacts.common.ContactsUtils;
+
 import com.android.dialer.R;
 import com.android.dialer.util.EmptyLoader;
 import com.android.dialer.voicemail.VoicemailStatusHelper;
@@ -47,6 +59,7 @@ import com.android.dialer.voicemail.VoicemailStatusHelper.StatusMessage;
 import com.android.dialer.voicemail.VoicemailStatusHelperImpl;
 import com.android.dialerbind.ObjectFactory;
 import com.android.internal.telephony.ITelephony;
+import com.android.internal.telephony.TelephonyIntents;
 
 import java.util.List;
 
@@ -62,6 +75,15 @@ public class CallLogFragment extends ListFragment
      * ID of the empty loader to defer other fragments.
      */
     private static final int EMPTY_LOADER_ID = 0;
+
+    public static final int CALL_ORIGIN_ALL = DualSimConstants.DSDS_INVALID_SLOT_ID;
+    public static final int CALL_ORIGIN_SIP = 1000;
+
+    private static final String PREF_CALL_TYPE = "CallLogFragment_call_type";
+    private static final String PREF_CALL_ORIGIN = "CallLogFragment_call_origin";
+    private static final int DEFAULT_CALL_ORIGIN = CALL_ORIGIN_ALL;
+
+    private int mCallOriginFilter;
 
     private CallLogAdapter mAdapter;
     private CallLogQueryHandler mCallLogQueryHandler;
@@ -84,6 +106,21 @@ public class CallLogFragment extends ListFragment
 
     private TelephonyManager mTelephonyManager;
 
+    private class SimStateReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (TextUtils.equals(action, TelephonyIntents.ACTION_SIM_STATE_CHANGED) ||
+                    TextUtils.equals(action, DualSimConstants.ACTION_SIM_STATE_CHANGED_2)) {
+                if (mAdapter != null) {
+                    mAdapter.notifyDataSetChanged();
+                }
+            }
+        }
+    }
+
+    private final BroadcastReceiver mSimStateReceiver = new SimStateReceiver();
+
     private class CustomContentObserver extends ContentObserver {
         public CustomContentObserver() {
             super(mHandler);
@@ -91,6 +128,9 @@ public class CallLogFragment extends ListFragment
         @Override
         public void onChange(boolean selfChange) {
             mRefreshDataRequired = true;
+            if (isResumed()) {
+                refreshData();
+            }
         }
     }
 
@@ -146,6 +186,7 @@ public class CallLogFragment extends ListFragment
             return;
         }
         mAdapter.setLoading(false);
+        mAdapter.setPreferredReturnCallSim(getCurrentSim());
         mAdapter.changeCursor(cursor);
         // This will update the state of the "Clear call log" menu item.
         getActivity().invalidateOptionsMenu();
@@ -229,8 +270,11 @@ public class CallLogFragment extends ListFragment
         super.onViewCreated(view, savedInstanceState);
         updateEmptyMessage(mCallTypeFilter);
         String currentCountryIso = GeoUtil.getCurrentCountryIso(getActivity());
+
         mAdapter = ObjectFactory.newCallLogAdapter(getActivity(), this, new ContactInfoHelper(
                 getActivity(), currentCountryIso), true, true);
+        mAdapter.setPreferredReturnCallSim(getCurrentSim());
+
         setListAdapter(mAdapter);
         getListView().setItemsCanFocus(true);
     }
@@ -262,6 +306,14 @@ public class CallLogFragment extends ListFragment
     @Override
     public void onResume() {
         super.onResume();
+
+        if (ContactsUtils.isDualSimSupported()) {
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
+            filter.addAction(DualSimConstants.ACTION_SIM_STATE_CHANGED_2);
+            getActivity().registerReceiver(mSimStateReceiver, filter);
+        }
+
         refreshData();
     }
 
@@ -299,6 +351,16 @@ public class CallLogFragment extends ListFragment
         super.onPause();
         // Kill the requests thread
         mAdapter.stopRequestProcessing();
+
+        if (ContactsUtils.isDualSimSupported()) {
+            Editor editor = PreferenceManager.getDefaultSharedPreferences(
+                    getActivity()).edit();
+            editor.putInt(PREF_CALL_TYPE, mCallTypeFilter);
+            editor.putInt(PREF_CALL_ORIGIN, mCallOriginFilter);
+            editor.apply();
+
+            getActivity().unregisterReceiver(mSimStateReceiver);
+        }
     }
 
     @Override
@@ -318,12 +380,12 @@ public class CallLogFragment extends ListFragment
 
     @Override
     public void fetchCalls() {
-        mCallLogQueryHandler.fetchCalls(mCallTypeFilter);
+        mCallLogQueryHandler.fetchCalls(getActivity(), getCurrentSim(), mCallTypeFilter);
     }
 
     public void startCallsQuery() {
         mAdapter.setLoading(true);
-        mCallLogQueryHandler.fetchCalls(mCallTypeFilter);
+        mCallLogQueryHandler.fetchCalls(getActivity(), getCurrentSim(), mCallTypeFilter);
     }
 
     private void startVoicemailStatusQuery() {
@@ -349,6 +411,7 @@ public class CallLogFragment extends ListFragment
         }
         ((TextView) getListView().getEmptyView()).setText(message);
     }
+
 
     public void callSelectedEntry() {
         int position = getListView().getSelectedItemPosition();
@@ -393,6 +456,33 @@ public class CallLogFragment extends ListFragment
 
     CallLogAdapter getAdapter() {
         return mAdapter;
+    }
+
+    private int getCurrentSim() {
+        if (ContactsUtils.isDualSimSupported()) {
+            if (mCallOriginFilter != CALL_ORIGIN_ALL
+                    && mCallOriginFilter != DualSimConstants.DSDS_SLOT_1_ID
+                    && mCallOriginFilter != DualSimConstants.DSDS_SLOT_2_ID
+                    && mCallOriginFilter != CALL_ORIGIN_SIP) {
+                mCallOriginFilter = DEFAULT_CALL_ORIGIN;
+            }
+
+            switch (mCallOriginFilter) {
+                case DualSimConstants.DSDS_SLOT_1_ID:
+                    if (!SimUtils.isSim1Ready(getActivity())) {
+                        mCallOriginFilter = CALL_ORIGIN_ALL;
+                    }
+                    break;
+                case DualSimConstants.DSDS_SLOT_2_ID:
+                    if (!SimUtils.isSim2Ready(getActivity())) {
+                        mCallOriginFilter = CALL_ORIGIN_ALL;
+                    }
+                    break;
+            }
+        } else {
+            mCallOriginFilter = CALL_ORIGIN_ALL;
+        }
+        return mCallOriginFilter;
     }
 
     @Override

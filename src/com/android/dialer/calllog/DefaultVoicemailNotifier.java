@@ -36,6 +36,11 @@ import com.android.dialer.CallDetailActivity;
 import com.android.dialer.R;
 import com.google.common.collect.Maps;
 
+import com.android.contacts.common.CallUtil;
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
+import com.android.contacts.common.ContactsUtils;
+
 import java.util.Map;
 
 /**
@@ -44,6 +49,8 @@ import java.util.Map;
  */
 public class DefaultVoicemailNotifier implements VoicemailNotifier {
     public static final String TAG = "DefaultVoicemailNotifier";
+
+    private static final String Calls_IMSI = "imsi";
 
     /** The tag used to identify notifications from this class. */
     private static final String NOTIFICATION_TAG = "DefaultVoicemailNotifier";
@@ -118,8 +125,9 @@ public class DefaultVoicemailNotifier implements VoicemailNotifier {
             // Check if we already know the name associated with this number.
             String name = names.get(newCall.number);
             if (name == null) {
+                int simIndex = ContactsUtils.isDualSimSupported() ? SimUtils.getSimIndexByImsi(mContext, newCall.imsi) : DualSimConstants.DSDS_INVALID_SLOT_ID;
                 name = mPhoneNumberHelper.getDisplayName(newCall.number,
-                        newCall.numberPresentation).toString();
+                        newCall.numberPresentation, simIndex).toString();
                 // If we cannot lookup the contact, use the number instead.
                 if (TextUtils.isEmpty(name)) {
                     // Look it up in the database.
@@ -212,6 +220,7 @@ public class DefaultVoicemailNotifier implements VoicemailNotifier {
         public final Uri voicemailUri;
         public final String number;
         public final int numberPresentation;
+        public final String imsi;
 
         public NewCall(Uri callsUri, Uri voicemailUri, String number,
                 int numberPresentation) {
@@ -219,7 +228,16 @@ public class DefaultVoicemailNotifier implements VoicemailNotifier {
             this.voicemailUri = voicemailUri;
             this.number = number;
             this.numberPresentation = numberPresentation;
+            this.imsi = null;
         }
+        public NewCall(Uri callsUri, Uri voicemailUri, String number, int numberPresentation, String imsi) {
+            this.callsUri = callsUri;
+            this.voicemailUri = voicemailUri;
+            this.number = number;
+            this.numberPresentation = numberPresentation;
+            this.imsi = imsi;
+        }
+	
     }
 
     /** Allows determining the new calls for which a notification should be generated. */
@@ -241,12 +259,13 @@ public class DefaultVoicemailNotifier implements VoicemailNotifier {
      */
     private static final class DefaultNewCallsQuery implements NewCallsQuery {
         private static final String[] PROJECTION = {
-            Calls._ID, Calls.NUMBER, Calls.VOICEMAIL_URI, Calls.NUMBER_PRESENTATION
+            Calls._ID, Calls.NUMBER, Calls.VOICEMAIL_URI, Calls.NUMBER_PRESENTATION, Calls_IMSI
         };
         private static final int ID_COLUMN_INDEX = 0;
         private static final int NUMBER_COLUMN_INDEX = 1;
         private static final int VOICEMAIL_URI_COLUMN_INDEX = 2;
         private static final int NUMBER_PRESENTATION_COLUMN_INDEX = 3;
+        private static final int IMSI_COLUMN_INDEX = 4;
 
         private final ContentResolver mContentResolver;
 
@@ -282,7 +301,7 @@ public class DefaultVoicemailNotifier implements VoicemailNotifier {
                     Calls.CONTENT_URI_WITH_VOICEMAIL, cursor.getLong(ID_COLUMN_INDEX));
             Uri voicemailUri = voicemailUriString == null ? null : Uri.parse(voicemailUriString);
             return new NewCall(callsUri, voicemailUri, cursor.getString(NUMBER_COLUMN_INDEX),
-                    cursor.getInt(NUMBER_PRESENTATION_COLUMN_INDEX));
+                    cursor.getInt(NUMBER_PRESENTATION_COLUMN_INDEX), cursor.getString(IMSI_COLUMN_INDEX));
         }
     }
 

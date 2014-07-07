@@ -49,6 +49,14 @@ public class AllContactsActivity extends TransactionSafeActivity {
                 }
 
                 @Override
+                public void onPickPhoneNumberAction2(Uri dataUri) {
+                    // Specify call-origin so that users will see the previous tab instead of
+                    // CallLog screen (search UI will be automatically exited).
+                    PhoneNumberInteraction.startInteractionForPhoneCall2(
+                        AllContactsActivity.this, dataUri, null);
+                }
+
+                @Override
                 public void onCallNumberDirectly(String phoneNumber) {
                 final Intent intent = CallUtil.getCallIntent(phoneNumber, null);
                     startActivity(intent);

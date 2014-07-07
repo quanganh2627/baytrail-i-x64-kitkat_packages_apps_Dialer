@@ -103,12 +103,14 @@ public class PhoneCallDetailsHelper {
         final CharSequence labelText;
         final CharSequence displayNumber =
             mPhoneNumberHelper.getDisplayNumber(details.number,
-                    details.numberPresentation, details.formattedNumber);
+                    details.numberPresentation, details.formattedNumber, details.simIndex);
         if (TextUtils.isEmpty(details.name)) {
             nameText = displayNumber;
             if (TextUtils.isEmpty(details.geocode)
-                    || mPhoneNumberUtilsWrapper.isVoicemailNumber(details.number)) {
+
+                    || mPhoneNumberUtilsWrapper.isVoicemailNumber(details.number, details.simIndex)) {
                 numberText = mResources.getString(R.string.call_log_empty_geocode);
+
             } else {
                 numberText = details.geocode;
             }
@@ -167,7 +169,7 @@ public class PhoneCallDetailsHelper {
         final CharSequence nameText;
         final CharSequence displayNumber =
             mPhoneNumberHelper.getDisplayNumber(details.number, details.numberPresentation,
-                        mResources.getString(R.string.recentCalls_addToContact));
+                        mResources.getString(R.string.recentCalls_addToContact), details.simIndex);
         if (TextUtils.isEmpty(details.name)) {
             nameText = displayNumber;
         } else {

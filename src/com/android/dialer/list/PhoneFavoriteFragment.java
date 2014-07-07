@@ -21,8 +21,11 @@ import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.app.Fragment;
 import android.app.LoaderManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.CursorLoader;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.Loader;
 import android.content.SharedPreferences;
 import android.database.Cursor;
@@ -30,6 +33,8 @@ import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.CallLog;
+import android.telephony.PhoneNumberUtils;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -39,18 +44,26 @@ import android.view.ViewTreeObserver;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
+
 import android.widget.Button;
+
+import android.widget.FrameLayout;
+import android.content.res.Resources;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.RelativeLayout;
 import android.widget.RelativeLayout.LayoutParams;
 
+import com.android.contacts.common.CallUtil;
 import com.android.contacts.common.ContactPhotoManager;
 import com.android.contacts.common.ContactTileLoaderFactory;
+import com.android.contacts.common.ContactsUtils;
 import com.android.contacts.common.GeoUtil;
 import com.android.contacts.common.list.ContactEntry;
 import com.android.contacts.common.list.ContactListItemView;
 import com.android.contacts.common.list.ContactTileView;
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
 import com.android.dialer.DialtactsActivity;
 import com.android.dialer.R;
 import com.android.dialer.calllog.CallLogAdapter;
@@ -59,6 +72,8 @@ import com.android.dialer.calllog.CallLogQueryHandler;
 import com.android.dialer.calllog.ContactInfoHelper;
 import com.android.dialer.list.PhoneFavoritesTileAdapter.ContactTileRow;
 import com.android.dialerbind.ObjectFactory;
+
+import com.android.internal.telephony.TelephonyIntents;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -104,12 +119,31 @@ public class PhoneFavoriteFragment extends Fragment implements OnItemClickListen
 
     public interface Listener {
         public void onContactSelected(Uri contactUri);
+        public void onContactSelected2(Uri contactUri);
         public void onCallNumberDirectly(String phoneNumber);
+        public void onCallNumberDirectly2(String phoneNumber);
     }
+
 
     public interface HostInterface {
         public void setDragDropController(DragDropController controller);
     }
+
+
+    private class SimStateReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (TextUtils.equals(action, TelephonyIntents.ACTION_SIM_STATE_CHANGED) ||
+                    TextUtils.equals(action, DualSimConstants.ACTION_SIM_STATE_CHANGED_2)) {
+                if (mAdapter != null) {
+                    mAdapter.notifyDataSetChanged();
+                }
+            }
+        }
+    }
+
+    private final BroadcastReceiver mSimStateReceiver = new SimStateReceiver();
 
     private class MissedCallLogLoaderListener implements LoaderManager.LoaderCallbacks<Cursor> {
 
@@ -152,11 +186,18 @@ public class PhoneFavoriteFragment extends Fragment implements OnItemClickListen
         }
     }
 
-    private class ContactTileAdapterListener implements ContactTileView.Listener {
+    private class ContactTileAdapterListener implements ContactTileView.Listener/*, OnClickListener*/ {
         @Override
         public void onContactSelected(Uri contactUri, Rect targetRect) {
             if (mListener != null) {
                 mListener.onContactSelected(contactUri);
+            }
+        }
+
+        @Override
+        public void onContactSelected2(Uri contactUri, Rect targetRect) {
+            if (mListener != null) {
+                mListener.onContactSelected2(contactUri);
             }
         }
 
@@ -168,9 +209,29 @@ public class PhoneFavoriteFragment extends Fragment implements OnItemClickListen
         }
 
         @Override
+        public void onCallNumberDirectly2(String phoneNumber) {
+            if (mListener != null) {
+                mListener.onCallNumberDirectly2(phoneNumber);
+            }
+        }
+
+        @Override
         public int getApproximateTileWidth() {
             return getView().getWidth() / mContactTileAdapter.getColumnCount();
         }
+
+/*
+        @Override
+        public void onClick(View view) {
+            Object tag = view == null ? null : view.getTag();
+            if (tag != null && tag instanceof Integer) {
+                if (mListener != null) {
+                    Uri contactUri = mAllContactsAdapter.getDataUri((Integer)tag);
+                    mListener.onContactSelected2(contactUri);
+                }
+            }
+        }
+*/
     }
 
     private class ScrollListener implements ListView.OnScrollListener {
@@ -242,6 +303,14 @@ public class PhoneFavoriteFragment extends Fragment implements OnItemClickListen
                 getResources().getInteger(R.integer.contact_tile_column_count_in_favorites),
                 PhoneFavoritesTileAdapter.NO_ROW_LIMIT);
         mContactTileAdapter.setPhotoLoader(ContactPhotoManager.getInstance(activity));
+
+        /*
+        //TODO. DSDS: Need to Check
+        if (CallUtil.isDualSimSupported()) {
+            mAllContactsAdapter.setPrimary2Listener((OnClickListener)mContactTileAdapterListener);
+            mAllContactsAdapter.setEnablePrimary2Action(true);
+        }
+        */
     }
 
     @Override
@@ -269,6 +338,13 @@ public class PhoneFavoriteFragment extends Fragment implements OnItemClickListen
         fetchCalls();
         mCallLogAdapter.setLoading(true);
         getLoaderManager().getLoader(LOADER_ID_CONTACT_TILE).forceLoad();
+
+        if (ContactsUtils.isDualSimSupported()) {
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
+            filter.addAction(DualSimConstants.ACTION_SIM_STATE_CHANGED_2);
+            getActivity().registerReceiver(mSimStateReceiver, filter);
+        }
     }
 
     @Override
@@ -310,6 +386,15 @@ public class PhoneFavoriteFragment extends Fragment implements OnItemClickListen
         mListView.setFastScrollEnabled(false);
         mListView.setFastScrollAlwaysVisible(false);
 
+        if (ContactsUtils.isDualSimSupported()) {
+            final Resources res = getActivity().getResources();
+            int margin = res.getDimensionPixelOffset(R.dimen.detail_item_vertical_margin);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT);
+            params.setMargins(0, 0, -margin, 0);
+            mListView.setLayoutParams(params);
+        }
         return mParentView;
     }
 
@@ -379,6 +464,16 @@ public class PhoneFavoriteFragment extends Fragment implements OnItemClickListen
         if (position <= contactTileAdapterCount) {
             Log.e(TAG, "onItemClick() event for unexpected position. "
                     + "The position " + position + " is before \"all\" section. Ignored.");
+        /** in JB, there is 'else' part; in KK, there is no 'else' part
+		} else {
+            final int localPosition = position - mContactTileAdapter.getCount() - 1;
+            if (mListener != null) {
+                String phoneNumber = mAllContactsAdapter.getContactPhoneNumber(localPosition);
+                if (!ContactsUtils.isDualSimSupported()
+                        || PhoneNumberUtils.isUriNumber(phoneNumber)
+                        || SimUtils.isSim1Ready(getActivity())) {
+                    mListener.onContactSelected(mAllContactsAdapter.getDataUri(localPosition));
+		**/
         }
     }
 
@@ -425,6 +520,10 @@ public class PhoneFavoriteFragment extends Fragment implements OnItemClickListen
         // it only contains one item.
         mCallLogAdapter.invalidateCache();
         super.onPause();
+
+        if (ContactsUtils.isDualSimSupported()) {
+            getActivity().unregisterReceiver(mSimStateReceiver);
+        }
     }
 
     /**

@@ -16,6 +16,7 @@
 
 package com.android.dialer.calllog;
 
+import android.app.FragmentManager;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
@@ -37,13 +38,21 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.android.common.widget.GroupingListAdapter;
+import com.android.contacts.common.ContactsUtils;
 import com.android.contacts.common.ContactPhotoManager;
+
 import com.android.contacts.common.ContactPhotoManager.DefaultImageRequest;
+
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
+
 import com.android.contacts.common.util.UriUtils;
 import com.android.dialer.PhoneCallDetails;
 import com.android.dialer.PhoneCallDetailsHelper;
 import com.android.dialer.R;
 import com.android.dialer.util.ExpirableCache;
+
+import com.android.dialer.interactions.SelectSimDialogFragment;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
@@ -101,6 +110,7 @@ public class CallLogAdapter extends GroupingListAdapter
     protected final Context mContext;
     private final ContactInfoHelper mContactInfoHelper;
     private final CallFetcher mCallFetcher;
+    private final FragmentManager mFragmentManager;
     private ViewTreeObserver mViewTreeObserver = null;
 
     /**
@@ -199,6 +209,8 @@ public class CallLogAdapter extends GroupingListAdapter
     private View mBadgeContainer;
     private ImageView mBadgeImageView;
     private TextView mBadgeText;
+    /** Preferred sim used to make return call. */
+    private int mPreferredReturnCallSim;
 
     /** Listener for the primary or secondary actions in the list.
      *  Primary opens the call details.
@@ -214,10 +226,22 @@ public class CallLogAdapter extends GroupingListAdapter
     private void startActivityForAction(View view) {
         final IntentProvider intentProvider = (IntentProvider) view.getTag();
         if (intentProvider != null) {
+            //DSDS: Need To Check
             final Intent intent = intentProvider.getIntent(mContext);
             // See IntentProvider.getCallDetailIntentProvider() for why this may be null.
-            if (intent != null) {
+            final Intent intent2 = intentProvider.getIntent2(mContext);
+            if (intent != null && intent2 != null) {
+                if (mFragmentManager != null) {
+                    SelectSimDialogFragment.show(mFragmentManager, mContext, null,
+                            mContext.getText(R.string.sim1Text), mContext.getText(R.string.sim2Text),
+                            intent, intent2);
+                } else {
+                    mContext.startActivity(intent);
+                }
+            } else if (intent != null) {
                 mContext.startActivity(intent);
+            } else if (intent2 != null) {
+                mContext.startActivity(intent2);
             }
         }
     }
@@ -253,10 +277,17 @@ public class CallLogAdapter extends GroupingListAdapter
     public CallLogAdapter(Context context, CallFetcher callFetcher,
             ContactInfoHelper contactInfoHelper, boolean showSecondaryActionButton,
             boolean isCallLog) {
+        this(context, callFetcher, null, contactInfoHelper, showSecondaryActionButton, isCallLog);
+    }
+
+    public CallLogAdapter(Context context, CallFetcher callFetcher, FragmentManager fragmentManager,
+            ContactInfoHelper contactInfoHelper, boolean showSecondaryActionButton,
+            boolean isCallLog) {
         super(context);
 
         mContext = context;
         mCallFetcher = callFetcher;
+        mFragmentManager = fragmentManager;
         mContactInfoHelper = contactInfoHelper;
         mShowSecondaryActionButton = showSecondaryActionButton;
         mIsCallLog = isCallLog;
@@ -268,13 +299,17 @@ public class CallLogAdapter extends GroupingListAdapter
         CallTypeHelper callTypeHelper = new CallTypeHelper(resources);
 
         mContactPhotoManager = ContactPhotoManager.getInstance(mContext);
+
         mPhoneNumberHelper = new PhoneNumberDisplayHelper(resources);
+
         PhoneCallDetailsHelper phoneCallDetailsHelper = new PhoneCallDetailsHelper(
-                resources, callTypeHelper, new PhoneNumberUtilsWrapper());
+                resources, callTypeHelper, new PhoneNumberUtilsWrapper(mContext));
         mCallLogViewsHelper =
                 new CallLogListItemHelper(
                         phoneCallDetailsHelper, mPhoneNumberHelper, resources);
         mCallLogGroupBuilder = new CallLogGroupBuilder(this);
+
+        mPreferredReturnCallSim = DualSimConstants.DSDS_INVALID_SLOT_ID;
     }
 
     /**
@@ -297,6 +332,10 @@ public class CallLogAdapter extends GroupingListAdapter
         } else {
             return super.isEmpty();
         }
+    }
+
+    public void setPreferredReturnCallSim(int simIndex) {
+        mPreferredReturnCallSim = simIndex;
     }
 
     /**
@@ -488,7 +527,9 @@ public class CallLogAdapter extends GroupingListAdapter
     @Override
     protected View newChildView(Context context, ViewGroup parent) {
         LayoutInflater inflater = (LayoutInflater) context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-        View view = inflater.inflate(R.layout.call_log_list_item, parent, false);
+        int resource = ContactsUtils.isDualSimSupported() ?
+                R.layout.call_log_list_item_ds : R.layout.call_log_list_item;
+        View view = inflater.inflate(resource, parent, false);
         findAndCacheViews(view);
         return view;
     }
@@ -538,6 +579,12 @@ public class CallLogAdapter extends GroupingListAdapter
         final int callType = c.getInt(CallLogQuery.CALL_TYPE);
         final String countryIso = c.getString(CallLogQuery.COUNTRY_ISO);
 
+        final String imsi = c.getString(CallLogQuery.IMSI);
+        int simIndex = DualSimConstants.DSDS_INVALID_SLOT_ID;
+        if (ContactsUtils.isDualSimSupported()) {
+            simIndex = SimUtils.getSimIndexByImsi(mContext, imsi);
+        }
+
         final ContactInfo cachedContactInfo = getContactInfoFromCallLog(c);
 
         final boolean isVoicemailNumber =
@@ -560,9 +607,20 @@ public class CallLogAdapter extends GroupingListAdapter
                         IntentProvider.getPlayVoicemailIntentProvider(rowId, voicemailUri));
             } else {
                 // Store the call details information.
+
+								
+                if (simIndex == DualSimConstants.DSDS_INVALID_SLOT_ID) {
                 views.secondaryActionButtonView.setTag(
-                        IntentProvider.getCallDetailIntentProvider(
-                                getCursor(), c.getPosition(), c.getLong(CallLogQuery.ID), count));
+          //              IntentProvider.getCallDetailIntentProvider(
+          //                      getCursor(), c.getPosition(), c.getLong(CallLogQuery.ID), count, mPreferredReturnCallSim));
+                         IntentProvider.getReturnCallIntentProvider(number, mPreferredReturnCallSim));
+                 } else {
+                views.secondaryActionButtonView.setTag(
+//                        IntentProvider.getCallDetailIntentProvider(
+//                                getCursor(), c.getPosition(), c.getLong(CallLogQuery.ID), count, simIndex));
+                           IntentProvider.getReturnCallIntentProvider(number, simIndex));
+                 }
+
             }
         } else {
             // No action enabled.
@@ -575,7 +633,7 @@ public class CallLogAdapter extends GroupingListAdapter
                 mContactInfoCache.getCachedValue(numberCountryIso);
         ContactInfo info = cachedInfo == null ? null : cachedInfo.getValue();
         if (!PhoneNumberUtilsWrapper.canPlaceCallsTo(number, numberPresentation)
-                || isVoicemailNumber) {
+                || new PhoneNumberUtilsWrapper(mContext).isVoicemailNumber(number, simIndex)) {
             // If this is a number that cannot be dialed, there is no point in looking up a contact
             // for it.
             info = ContactInfo.EMPTY;
@@ -621,11 +679,11 @@ public class CallLogAdapter extends GroupingListAdapter
         if (TextUtils.isEmpty(name)) {
             details = new PhoneCallDetails(number, numberPresentation,
                     formattedNumber, countryIso, geocode, callTypes, date,
-                    duration);
+                    duration, imsi, simIndex);
         } else {
             details = new PhoneCallDetails(number, numberPresentation,
                     formattedNumber, countryIso, geocode, callTypes, date,
-                    duration, name, ntype, label, lookupUri, photoUri, sourceType);
+                    duration, name, ntype, label, lookupUri, photoUri, sourceType, imsi, simIndex);
         }
 
         final boolean isNew = c.getInt(CallLogQuery.IS_READ) == 0;

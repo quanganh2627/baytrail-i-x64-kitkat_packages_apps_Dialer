@@ -16,6 +16,7 @@
 
 package com.android.dialer.calllog;
 
+import android.content.Context;
 import android.provider.CallLog;
 import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
@@ -24,12 +25,23 @@ import com.google.common.collect.Sets;
 
 import java.util.Set;
 
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
+
 /**
  *
  */
 public class PhoneNumberUtilsWrapper {
     public static final PhoneNumberUtilsWrapper INSTANCE = new PhoneNumberUtilsWrapper();
     private static final Set<String> LEGACY_UNKNOWN_NUMBERS = Sets.newHashSet("-1", "-2", "-3");
+    private Context mContext = null;
+
+    public PhoneNumberUtilsWrapper() {
+    }
+
+    public PhoneNumberUtilsWrapper(Context context) {
+        mContext = context;
+    }
 
     /** Returns true if it is possible to place a call to the given number. */
     public static boolean canPlaceCallsTo(CharSequence number, int presentation) {
@@ -50,7 +62,16 @@ public class PhoneNumberUtilsWrapper {
      * mock-out this, it is not a static method.
      */
     public boolean isVoicemailNumber(CharSequence number) {
-        return number!= null && PhoneNumberUtils.isVoiceMailNumber(number.toString());
+        return isVoicemailNumber(number, DualSimConstants.DSDS_INVALID_SLOT_ID);
+    }
+
+    public boolean isVoicemailNumber(CharSequence number, int simIndex) {
+        // SimUtils can handle mContext is null
+        if (SimUtils.isPrimarySim(mContext, simIndex)) {
+            return PhoneNumberUtils.isVoiceMailNumber(number.toString());
+        } else {
+            return PhoneNumberUtils.isVoiceMailNumber2(number.toString());
+        }
     }
 
     /**
@@ -61,7 +82,7 @@ public class PhoneNumberUtilsWrapper {
         return number != null && PhoneNumberUtils.isUriNumber(number.toString());
     }
 
-    public static boolean isUnknownNumberThatCanBeLookedUp(CharSequence number, int presentation) {
+    public static boolean isUnknownNumberThatCanBeLookedUp(CharSequence number, int presentation, Context context) {
         if (presentation == CallLog.Calls.PRESENTATION_UNKNOWN) {
             return false;
         }
@@ -74,7 +95,9 @@ public class PhoneNumberUtilsWrapper {
         if (TextUtils.isEmpty(number)) {
             return false;
         }
-        if (INSTANCE.isVoicemailNumber(number)) {
+//4.4.4 
+//        if (INSTANCE.isVoicemailNumber(number)) {
+        if (new PhoneNumberUtilsWrapper(context).isVoicemailNumber(number)) {
             return false;
         }
         if (isLegacyUnknownNumbers(number)) {

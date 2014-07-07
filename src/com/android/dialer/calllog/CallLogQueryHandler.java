@@ -19,6 +19,7 @@ package com.android.dialer.calllog;
 import android.content.AsyncQueryHandler;
 import android.content.ContentResolver;
 import android.content.ContentValues;
+import android.content.Context;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.database.MergeCursor;
@@ -32,10 +33,13 @@ import android.os.Looper;
 import android.os.Message;
 import android.provider.CallLog.Calls;
 import android.provider.VoicemailContract.Status;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.common.io.MoreCloseables;
 import com.android.contacts.common.database.NoNullCursorAsyncQueryHandler;
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
 import com.android.dialer.voicemail.VoicemailStatusHelperImpl;
 import com.google.common.collect.Lists;
 
@@ -51,6 +55,7 @@ public class CallLogQueryHandler extends NoNullCursorAsyncQueryHandler {
     private static final String TAG = "CallLogQueryHandler";
     private static final int NUM_LOGS_TO_DISPLAY = 1000;
 
+    private static final String Calls_IMSI = "imsi";
     /** The token for the query to fetch the old entries from the call log. */
     private static final int QUERY_CALLLOG_TOKEN = 54;
     /** The token for the query to mark all missed calls as old after seeing the call log. */
@@ -141,20 +146,46 @@ public class CallLogQueryHandler extends NoNullCursorAsyncQueryHandler {
     public void fetchCalls(int callType, long newerThan) {
         cancelFetch();
         int requestId = newCallsRequest();
-        fetchCalls(QUERY_CALLLOG_TOKEN, requestId, callType, false /* newOnly */, newerThan);
+        fetchCalls(QUERY_CALLLOG_TOKEN, requestId, null, callType, false /* newOnly */, newerThan);
     }
 
     public void fetchCalls(int callType) {
         fetchCalls(callType, 0);
     }
+	
+    public void fetchCalls(Context context, int simIndex, int callType) {
+        cancelFetch();
 
+        String imsi = null;
+        switch (simIndex) {
+        case CallLogFragment.CALL_ORIGIN_SIP:
+            imsi = DualSimConstants.IMSI_FOR_SIP_CALL;
+            break;
+        case DualSimConstants.DSDS_SLOT_1_ID:
+        case DualSimConstants.DSDS_SLOT_2_ID:
+            imsi = SimUtils.getSimImsi(context, simIndex);
+            break;
+        }
+
+        if (simIndex == CallLogFragment.CALL_ORIGIN_ALL ||
+                !TextUtils.isEmpty(imsi)) {
+            int requestId = newCallsRequest();
+            //fetchCalls(QUERY_NEW_CALLS_TOKEN, requestId, imsi, true /*isNew*/, callType);
+            //fetchCalls(QUERY_OLD_CALLS_TOKEN, requestId, imsi, false /*isNew*/, callType);
+            fetchCalls(QUERY_CALLLOG_TOKEN, requestId, imsi, callType, false /* newOnly */, 0);
+			
+        } else {
+            updateAdapterData(null);
+        }
+    }
+	
     public void fetchVoicemailStatus() {
         startQuery(QUERY_VOICEMAIL_STATUS_TOKEN, null, Status.CONTENT_URI,
                 VoicemailStatusHelperImpl.PROJECTION, null, null, null);
     }
 
     /** Fetches the list of calls in the call log. */
-    private void fetchCalls(int token, int requestId, int callType, boolean newOnly,
+    private void fetchCalls(int token, int requestId, String imsi, int callType, boolean newOnly,
             long newerThan) {
         // We need to check for NULL explicitly otherwise entries with where READ is NULL
         // may not match either the query or its negation.
@@ -177,12 +208,21 @@ public class CallLogQueryHandler extends NoNullCursorAsyncQueryHandler {
             selectionArgs.add(Integer.toString(callType));
         }
 
+
         if (newerThan > 0) {
             if (where.length() > 0) {
                 where.append(" AND ");
             }
             where.append(String.format("(%s > ?)", Calls.DATE));
             selectionArgs.add(Long.toString(newerThan));
+        }
+
+        if (!TextUtils.isEmpty(imsi)) {
+            if (where.length() > 0) {
+                where.append(" AND ");
+            }
+            where.append(String.format("(%s like ?)", Calls_IMSI));
+            selectionArgs.add(imsi);
         }
 
         final int limit = (mLogLimit == -1) ? NUM_LOGS_TO_DISPLAY : mLogLimit;
@@ -274,6 +314,7 @@ public class CallLogQueryHandler extends NoNullCursorAsyncQueryHandler {
             return;
         } else {
             Log.w(TAG, "Unknown query completed: ignoring: " + token);
+            MoreCloseables.closeQuietly(cursor);
             return;
         }
 
@@ -290,6 +331,8 @@ public class CallLogQueryHandler extends NoNullCursorAsyncQueryHandler {
         final Listener listener = mListener.get();
         if (listener != null) {
             listener.onCallsFetched(combinedCursor);
+        } else {
+            MoreCloseables.closeQuietly(combinedCursor);
         }
     }
 
@@ -297,6 +340,8 @@ public class CallLogQueryHandler extends NoNullCursorAsyncQueryHandler {
         final Listener listener = mListener.get();
         if (listener != null) {
             listener.onVoicemailStatusFetched(statusCursor);
+        } else {
+            MoreCloseables.closeQuietly(statusCursor);
         }
     }
 

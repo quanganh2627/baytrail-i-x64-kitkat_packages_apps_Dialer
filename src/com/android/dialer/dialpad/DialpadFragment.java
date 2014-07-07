@@ -21,17 +21,25 @@ import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.DialogFragment;
 import android.app.Fragment;
+import android.app.LoaderManager.LoaderCallbacks;
+import android.content.BroadcastReceiver;
+import android.content.ContentUris;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.CursorLoader;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.Loader;
 import android.content.res.Resources;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.net.Uri;
+import android.net.Uri.Builder;
 import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -39,6 +47,12 @@ import android.os.SystemProperties;
 import android.provider.Contacts.People;
 import android.provider.Contacts.Phones;
 import android.provider.Contacts.PhonesColumns;
+
+import android.provider.ContactsContract.Intents;
+import android.provider.ContactsContract.Contacts;
+import android.provider.ContactsContract.CommonDataKinds.Callable;
+import android.provider.ContactsContract.CommonDataKinds.Phone;
+import android.provider.ContactsContract;
 import android.provider.Settings;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.PhoneStateListener;
@@ -62,17 +76,20 @@ import android.view.ViewTreeObserver.OnPreDrawListener;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.LinearLayout.LayoutParams;
 import android.widget.ListView;
 import android.widget.PopupMenu;
 import android.widget.TableRow;
 import android.widget.TextView;
-
+import com.android.contacts.common.ContactsUtils;
 import com.android.contacts.common.CallUtil;
 import com.android.contacts.common.GeoUtil;
 import com.android.contacts.common.util.PhoneNumberFormatter;
 import com.android.contacts.common.util.StopWatch;
+import com.android.contacts.common.util.ContactLocaleUtils;
 import com.android.dialer.NeededForReflection;
 import com.android.dialer.DialtactsActivity;
 import com.android.dialer.R;
@@ -84,6 +101,18 @@ import com.google.common.annotations.VisibleForTesting;
 
 import java.util.HashSet;
 
+import com.android.dialer.interactions.SelectSimDialogFragment;
+
+import com.android.contacts.common.ContactPhotoManager;
+import com.android.contacts.common.preference.ContactsPreferences;
+//import com.android.contacts.common.util.ContactLocaleUtils;
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
+import com.android.internal.telephony.TelephonyConstants;
+import com.android.internal.telephony.TelephonyIntents;
+
+
+
 /**
  * Fragment that displays a twelve-key phone dialpad.
  */
@@ -92,7 +121,8 @@ public class DialpadFragment extends Fragment
         View.OnLongClickListener, View.OnKeyListener,
         AdapterView.OnItemClickListener, TextWatcher,
         PopupMenu.OnMenuItemClickListener,
-        DialpadKeyButton.OnPressedListener {
+        DialpadKeyButton.OnPressedListener,
+        LoaderCallbacks<Cursor> {
     private static final String TAG = DialpadFragment.class.getSimpleName();
 
     /**
@@ -177,6 +207,8 @@ public class DialpadFragment extends Fragment
     private static final String EMPTY_NUMBER = "";
     private static final char PAUSE = ',';
     private static final char WAIT = ';';
+    private static final String PHONE2_NUMBER = "phone2";
+
 
     /** The length of DTMF tones in milliseconds */
     private static final int TONE_LENGTH_MS = 150;
@@ -189,6 +221,38 @@ public class DialpadFragment extends Fragment
     private static final int DIAL_TONE_STREAM_TYPE = AudioManager.STREAM_DTMF;
 
     private OnDialpadQueryChangedListener mDialpadQueryListener;
+
+    private static final String[] PROJECTION_PRIMARY = new String[] {  //ref
+        Phone._ID,                          // 0
+        Phone.TYPE,                         // 1
+        Phone.LABEL,                        // 2
+        Phone.NUMBER,                       // 3
+        Phone.CONTACT_ID,                   // 4
+        Phone.LOOKUP_KEY,                   // 5
+        Phone.PHOTO_URI,                    // 6
+        Phone.DISPLAY_NAME_PRIMARY,         // 7
+    };
+
+    private static final String[] PROJECTION_ALTERNATIVE = new String[] {
+        Phone._ID,                          // 0
+        Phone.TYPE,                         // 1
+        Phone.LABEL,                        // 2
+        Phone.NUMBER,                       // 3
+        Phone.CONTACT_ID,                   // 4
+        Phone.LOOKUP_KEY,                   // 5
+        Phone.PHOTO_URI,                    // 6
+        Phone.DISPLAY_NAME_ALTERNATIVE,     // 7
+    };
+
+    public static final int PHONE_ID           = 0;
+    public static final int PHONE_TYPE         = 1;
+    public static final int PHONE_LABEL        = 2;
+    public static final int PHONE_NUMBER       = 3;
+    public static final int PHONE_CONTACT_ID   = 4;
+    public static final int PHONE_LOOKUP_KEY   = 5;
+    public static final int PHONE_PHOTO_URI    = 6;
+    public static final int PHONE_DISPLAY_NAME = 7;
+
 
     /**
      * View (usually FrameLayout) containing mDigits field. This can be null, in which mDigits
@@ -210,6 +274,10 @@ public class DialpadFragment extends Fragment
      * Set of dialpad keys that are currently being pressed
      */
     private final HashSet<View> mPressedDialpadKeys = new HashSet<View>(12);
+
+    private boolean mIsDualSimSupported = ContactsUtils.isDualSimSupported();
+
+    private String mQueryString;
 
     private ListView mDialpadChooser;
     private DialpadChooserAdapter mDialpadChooserAdapter;
@@ -250,6 +318,17 @@ public class DialpadFragment extends Fragment
 
     private String mCurrentCountryIso;
 
+    private final BroadcastReceiver mSimStateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (TextUtils.equals(action, TelephonyIntents.ACTION_SIM_STATE_CHANGED) ||
+                    TextUtils.equals(action, DualSimConstants.ACTION_SIM_STATE_CHANGED_2)) {
+                updateDialAndDeleteButtonEnabledState();
+            }
+        }
+    };
+
     private final PhoneStateListener mPhoneStateListener = new PhoneStateListener() {
         /**
          * Listen for phone state changes so that we can take down the
@@ -260,7 +339,8 @@ public class DialpadFragment extends Fragment
         public void onCallStateChanged(int state, String incomingNumber) {
             // Log.i(TAG, "PhoneStateListener.onCallStateChanged: "
             //       + state + ", '" + incomingNumber + "'");
-            if ((state == TelephonyManager.CALL_STATE_IDLE) && dialpadChooserVisible()) {
+            if ((state == TelephonyManager.CALL_STATE_IDLE) && dialpadChooserVisible() &&
+                    !phoneIsInUse()) {
                 // Log.i(TAG, "Call ended with dialpad chooser visible!  Taking it down...");
                 // Note there's a race condition in the UI here: the
                 // dialpad chooser could conceivably disappear (on its
@@ -269,7 +349,54 @@ public class DialpadFragment extends Fragment
                 // least that's better than leaving the dialpad chooser
                 // onscreen, but useless...)
                 showDialpadChooser(false);
+                updateDialAndDeleteButtonEnabledState();
+                mDigits.setHint(null);
             }
+        }
+    };
+
+    private SelectSimDialogFragment.Listener mVoicemailListener;
+
+    private class VoicemailListener implements SelectSimDialogFragment.Listener {
+        private void showError() {
+            // Voicemail is unavailable maybe because Airplane mode is turned on.
+            // Check the current status and show the most appropriate error message.
+            final boolean isAirplaneModeOn =
+                    Settings.System.getInt(getActivity().getContentResolver(),
+                    Settings.System.AIRPLANE_MODE_ON, 0) != 0;
+            if (isAirplaneModeOn) {
+                DialogFragment dialogFragment = ErrorDialogFragment.newInstance(
+                        R.string.dialog_voicemail_airplane_mode_message);
+                dialogFragment.show(getFragmentManager(),
+                        "voicemail_request_during_airplane_mode");
+            } else {
+                DialogFragment dialogFragment = ErrorDialogFragment.newInstance(
+                        R.string.dialog_voicemail_not_ready_message);
+                dialogFragment.show(getFragmentManager(), "voicemail_not_ready");
+            }
+        }
+        @Override
+        public void onItemCliecked() {
+            if (isVoicemailAvailable(DualSimConstants.DSDS_SLOT_1_ID)) {
+                callVoicemail(DualSimConstants.DSDS_SLOT_1_ID);
+            } else if (getActivity() != null) {
+                showError();
+            }
+        }
+        @Override
+        public void onItem2Cliecked() {
+            if (isVoicemailAvailable(DualSimConstants.DSDS_SLOT_2_ID)) {
+                callVoicemail(DualSimConstants.DSDS_SLOT_2_ID);
+            } else if (getActivity() != null) {
+                showError();
+            }
+        }
+    }
+
+    private ContactsPreferences.ChangeListener mPreferencesChangeListener =
+            new ContactsPreferences.ChangeListener() {
+        @Override
+        public void onChange() {
         }
     };
 
@@ -280,7 +407,7 @@ public class DialpadFragment extends Fragment
      * that SpecialCharSequenceMgr actions can be triggered by user input but *not* by a
      * tel: URI passed by some other app.  It will be set to false when all digits are cleared.
      */
-    private boolean mDigitsFilledByIntent;
+    private boolean mDigitsFilledByIntent = false;
 
     private boolean mStartedFromNewIntent = false;
     private boolean mFirstLaunch = false;
@@ -292,8 +419,28 @@ public class DialpadFragment extends Fragment
      * Return an Intent for launching voicemail screen.
      */
     private static Intent getVoicemailIntent() {
-        final Intent intent = new Intent(Intent.ACTION_CALL_PRIVILEGED,
-                Uri.fromParts("voicemail", "", null));
+        return getVoicemailIntent(DualSimConstants.DSDS_SLOT_1_ID);
+    }
+
+    private static Intent getVoicemailIntent(int simIndex) {
+        final Intent intent;
+        if (ContactsUtils.isDualSimSupported()) {
+            intent = new Intent(DualSimConstants.ACTION_DUAL_SIM_CALL);
+            final Uri uri;
+            if (simIndex == DualSimConstants.DSDS_SLOT_2_ID) {
+                uri = Uri.fromParts("voicemail", "", null);
+                intent.putExtra(DualSimConstants.EXTRA_DSDS_CALL_POLICY,
+                        DualSimConstants.EXTRA_DCALL_SLOT_2);
+            } else {
+                uri = Uri.fromParts("voicemail", "phone2", null);
+                intent.putExtra(DualSimConstants.EXTRA_DSDS_CALL_POLICY,
+                        DualSimConstants.EXTRA_DCALL_SLOT_1);
+            }
+            intent.setData(uri);
+        } else {
+            intent = new Intent(Intent.ACTION_CALL_PRIVILEGED,
+                    Uri.fromParts("voicemail", "", null));
+        }
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         return intent;
     }
@@ -340,6 +487,70 @@ public class DialpadFragment extends Fragment
             mDialpadQueryListener.onDialpadQueryChanged(mDigits.getText().toString());
         }
         updateDialAndDeleteButtonEnabledState();
+
+		//TODO NEED TO CHECK (ref)
+        if (isResumed()) {
+        }
+    }
+
+
+
+    private String getQueryString() {
+        String query = mDigits.getText().toString();
+        if (!TextUtils.isEmpty(query)) {
+            query = PhoneNumberUtils.stripSeparators(query);
+        }
+        return query;
+    }
+
+
+    @Override
+    public Loader<Cursor> onCreateLoader(int id, Bundle args) {
+        CursorLoader loader = new CursorLoader(getActivity(),
+                null, null, null, null, null);
+
+        final Uri baseUri = Callable.CONTENT_FILTER_URI;
+        final Builder builder = baseUri.buildUpon();
+        if (TextUtils.isEmpty(mQueryString)) {
+            builder.appendPath("");
+        } else {
+            builder.appendPath(mQueryString);      // Builder will encode the query
+        }
+
+        builder.appendQueryParameter(ContactsContract.DIRECTORY_PARAM_KEY, String.valueOf(0));
+        // Remove duplicates when it is possible.
+        builder.appendQueryParameter(ContactsContract.REMOVE_DUPLICATE_ENTRIES, "true");
+        builder.appendQueryParameter("smart_dialing", "true");
+        loader.setUri(builder.build());
+//4.4.4 remove
+//        if (mContactsPrefs.getDisplayOrder() ==
+//                ContactsContract.Preferences.DISPLAY_ORDER_PRIMARY) {
+            loader.setProjection(PROJECTION_PRIMARY);
+//        } else {
+//            loader.setProjection(PROJECTION_ALTERNATIVE);
+//        }
+
+//        if (mContactsPrefs.getSortOrder() ==
+//                ContactsContract.Preferences.SORT_ORDER_PRIMARY) {
+            loader.setSortOrder(Phone.SORT_KEY_PRIMARY);
+//        } else {
+//            loader.setSortOrder(Phone.SORT_KEY_ALTERNATIVE);
+//        }
+
+        return loader;
+    }
+
+    @Override
+    public void onLoadFinished(Loader<Cursor> loader, Cursor data) {
+    }
+
+    @Override
+    public void onLoaderReset(Loader<Cursor> loader) {
+    }
+
+    @Override
+    public void onActivityCreated(Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
     }
 
     @Override
@@ -408,7 +619,6 @@ public class DialpadFragment extends Fragment
         if (oneButton != null) {
             setupKeypad(fragmentView);
         }
-
         mDelete = fragmentView.findViewById(R.id.deleteButton);
         if (mDelete != null) {
             mDelete.setOnClickListener(this);
@@ -439,6 +649,12 @@ public class DialpadFragment extends Fragment
         // Set up the "dialpad chooser" UI; see showDialpadChooser().
         mDialpadChooser = (ListView) fragmentView.findViewById(R.id.dialpadChooser);
         mDialpadChooser.setOnItemClickListener(this);
+
+        if (mIsDualSimSupported) {
+            mVoicemailListener = new VoicemailListener();
+        } else {
+            mVoicemailListener = null;
+        }
 
         return fragmentView;
     }
@@ -642,6 +858,7 @@ public class DialpadFragment extends Fragment
 
     }
 
+
     @Override
     public void onResume() {
         super.onResume();
@@ -693,7 +910,18 @@ public class DialpadFragment extends Fragment
         // While we're in the foreground, listen for phone state changes,
         // purely so that we can take down the "dialpad chooser" if the
         // phone becomes idle while the chooser UI is visible.
+        TelephonyManager telephonyManager =
+                (TelephonyManager) getActivity().getSystemService(Context.TELEPHONY_SERVICE);
         getTelephonyManager().listen(mPhoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
+        if (mIsDualSimSupported) {
+            TelephonyManager telephonyManager2 = ContactsUtils.getTelephonyManager2(getActivity());
+            telephonyManager2.listen(mPhoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
+
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
+            filter.addAction(DualSimConstants.ACTION_SIM_STATE_CHANGED_2);
+            getActivity().registerReceiver(mSimStateReceiver, filter);
+        }
 
         stopWatch.lap("tm");
 
@@ -736,7 +964,17 @@ public class DialpadFragment extends Fragment
         super.onPause();
 
         // Stop listening for phone state changes.
-        getTelephonyManager().listen(mPhoneStateListener, PhoneStateListener.LISTEN_NONE);
+        TelephonyManager telephonyManager =
+                (TelephonyManager) getActivity().getSystemService(Context.TELEPHONY_SERVICE);
+//        getTelephonyManager().listen(mPhoneStateListener, PhoneStateListener.LISTEN_NONE);
+        telephonyManager.listen(mPhoneStateListener, PhoneStateListener.LISTEN_NONE);
+        if (mIsDualSimSupported) {
+            TelephonyManager telephonyManager2 = ContactsUtils.getTelephonyManager2(getActivity());
+            telephonyManager2.listen(mPhoneStateListener, PhoneStateListener.LISTEN_NONE);
+
+            getActivity().unregisterReceiver(mSimStateReceiver);
+        }
+
 
         // Make sure we don't leave this activity with a tone still playing.
         stopTone();
@@ -753,12 +991,12 @@ public class DialpadFragment extends Fragment
         mLastNumberDialed = EMPTY_NUMBER;  // Since we are going to query again, free stale number.
 
         SpecialCharSequenceMgr.cleanup();
+        ContactLocaleUtils.clearNameLookupKeyCache();
     }
 
     @Override
     public void onStop() {
         super.onStop();
-
         if (mClearDigitsOnStop) {
             mClearDigitsOnStop = false;
             clearDialpad();
@@ -949,8 +1187,14 @@ public class DialpadFragment extends Fragment
      * pressed.
      */
     public void dialButtonPressed() {
+
+        //TODO: ref, dial number from SIM A by default
+        dialButtonPressed(DualSimConstants.DSDS_SLOT_1_ID);
+    }
+
+    public void dialButtonPressed(int simIndex) {
         mHaptic.vibrate();
-        handleDialButtonPressed();
+        handleDialButtonPressed(simIndex);
     }
 
     @Override
@@ -993,8 +1237,22 @@ public class DialpadFragment extends Fragment
                     // We'll try to initiate voicemail and thus we want to remove irrelevant string.
                     removePreviousDigitIfPossible();
 
-                    if (isVoicemailAvailable()) {
-                        callVoicemail();
+                    if (mIsDualSimSupported) {
+                        final boolean hasSim1 = SimUtils.isSim1Ready(this.getActivity());
+                        final boolean hasSim2 = SimUtils.isSim2Ready(this.getActivity());
+                        if (hasSim1 && hasSim2) {
+                            Resources res = getResources();
+                            SelectSimDialogFragment.show(getFragmentManager(), this.getActivity(), null,
+                                    res.getString(R.string.voicemail_of, res.getString(R.string.sim1Text)),
+                                    res.getString(R.string.voicemail_of, res.getString(R.string.sim2Text)),
+                                    mVoicemailListener);
+                        } else if (hasSim1) {
+                            mVoicemailListener.onItemCliecked();
+                        } else if (hasSim2) {
+                            mVoicemailListener.onItem2Cliecked();
+                        }
+                    } else if (isVoicemailAvailable(DualSimConstants.DSDS_SLOT_1_ID)) {
+                        callVoicemail(DualSimConstants.DSDS_SLOT_1_ID);
                     } else if (getActivity() != null) {
                         // Voicemail is unavailable maybe because Airplane mode is turned on.
                         // Check the current status and show the most appropriate error message.
@@ -1052,7 +1310,11 @@ public class DialpadFragment extends Fragment
     }
 
     public void callVoicemail() {
-        startActivity(getVoicemailIntent());
+        callVoicemail(DualSimConstants.DSDS_SLOT_1_ID);
+    }
+
+    public void callVoicemail(int simIndex) {
+        startActivity(ContactsUtils.getVoicemailIntent(simIndex));
         hideAndClearDialpad(false);
     }
 
@@ -1126,9 +1388,18 @@ public class DialpadFragment extends Fragment
      * user needs to press the dial button again, to dial it (general
      * case described above).
      */
-    private void handleDialButtonPressed() {
+
+
+
+    public void handleDialButtonPressed() {
+        //TODO: ref, dial number from SIM A by default
+        dialButtonPressed(DualSimConstants.DSDS_SLOT_1_ID);
+    }
+
+    public void handleDialButtonPressed(int simIndex) {
+
         if (isDigitsEmpty()) { // No number entered.
-            handleDialButtonClickWithEmptyDigits();
+            handleDialButtonClickWithEmptyDigits(simIndex);
         } else {
             final String number = mDigits.getText().toString();
 
@@ -1149,9 +1420,16 @@ public class DialpadFragment extends Fragment
                 // Clear the digits just in case.
                 mDigits.getText().clear();
             } else {
-                final Intent intent = CallUtil.getCallIntent(number,
-                        (getActivity() instanceof DialtactsActivity ?
-                                ((DialtactsActivity) getActivity()).getCallOrigin() : null));
+                final Intent intent;
+                if (mIsDualSimSupported) {
+                    intent = CallUtil.getDualSimCallIntent(number, simIndex,
+                            (getActivity() instanceof DialtactsActivity ?
+                                    ((DialtactsActivity)getActivity()).getCallOrigin() : null));
+                } else {
+                    intent = CallUtil.getCallIntent(number,
+                            (getActivity() instanceof DialtactsActivity ?
+                                    ((DialtactsActivity)getActivity()).getCallOrigin() : null));
+                }
                 startActivity(intent);
                 hideAndClearDialpad(false);
             }
@@ -1167,12 +1445,12 @@ public class DialpadFragment extends Fragment
                 ((DialtactsActivity) getActivity()).getCallOrigin() : null;
     }
 
-    private void handleDialButtonClickWithEmptyDigits() {
+    private void handleDialButtonClickWithEmptyDigits(int simIndex) {
         if (phoneIsCdma() && phoneIsOffhook()) {
             // This is really CDMA specific. On GSM is it possible
             // to be off hook and wanted to add a 3rd party using
             // the redial feature.
-            startActivity(newFlashIntent());
+            startActivity(newFlashIntent(simIndex));
         } else {
             if (!TextUtils.isEmpty(mLastNumberDialed)) {
                 // Recall the last number dialed.
@@ -1187,6 +1465,11 @@ public class DialpadFragment extends Fragment
                 // contains a *formatted* version of mLastNumberDialed (due to
                 // mTextWatcher) and its length may have changed.
                 mDigits.setSelection(mDigits.getText().length());
+
+                final Activity activity = getActivity();
+                if (activity != null) {
+                    activity.invalidateOptionsMenu();
+                }
             } else {
                 // There's no "last number dialed" or the
                 // background query is still running. There's
@@ -1470,7 +1753,14 @@ public class DialpadFragment extends Fragment
     private void returnToInCallScreen(boolean showDialpad) {
         try {
             ITelephony phone = ITelephony.Stub.asInterface(ServiceManager.checkService("phone"));
-            if (phone != null) phone.showCallScreenWithDialpad(showDialpad);
+            if (phone != null  && !phone.isIdle()) {
+                phone.showCallScreenWithDialpad(showDialpad);
+            } else if (mIsDualSimSupported) {
+                phone = ITelephony.Stub.asInterface(ServiceManager.checkService("phone2"));
+                if (phone != null && !phone.isIdle()) {
+                    phone.showCallScreenWithDialpad(showDialpad);
+                }
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "phone.showCallScreenWithDialpad() failed", e);
         }
@@ -1490,8 +1780,40 @@ public class DialpadFragment extends Fragment
      * @return true if the phone is "in use", meaning that at least one line
      *              is active (ie. off hook or ringing or dialing).
      */
-    public boolean phoneIsInUse() {
-        return getTelephonyManager().getCallState() != TelephonyManager.CALL_STATE_IDLE;
+    public static boolean phoneIsInUse() {
+        boolean phoneInUse = false;
+        try {
+            ITelephony phone = ITelephony.Stub.asInterface(ServiceManager.checkService("phone"));
+            if (phone != null && !phone.isIdle()) {
+                phoneInUse = true;
+            } else if (ContactsUtils.isDualSimSupported()) {
+                phone = ITelephony.Stub.asInterface(ServiceManager.checkService("phone2"));
+                if (phone != null && !phone.isIdle()) {
+                    phoneInUse = true;
+                }
+            }
+        } catch (RemoteException e) {
+            Log.w(TAG, "phone.isIdle() failed", e);
+        }
+        return phoneInUse;
+//      return getTelephonyManager().getCallState() != TelephonyManager.CALL_STATE_IDLE; //in kk
+    }
+
+    public boolean phoneIsInUse(int simIndex) {
+        boolean phoneInUse = false;
+        try {
+            ITelephony phone = null;
+            if (SimUtils.isPrimarySim(this.getActivity(), simIndex)) {
+                phone = ITelephony.Stub.asInterface(ServiceManager.checkService("phone"));
+            } else {
+                phone = ITelephony.Stub.asInterface(ServiceManager.checkService("phone2"));
+            }
+            if (phone != null) phoneInUse = !phone.isIdle();
+        } catch (RemoteException e) {
+            Log.w(TAG, "phone.isIdle() failed", e);
+        }
+        return phoneInUse;
+//      return getTelephonyManager().getCallState() != TelephonyManager.CALL_STATE_IDLE; //in kk
     }
 
     /**
@@ -1565,8 +1887,9 @@ public class DialpadFragment extends Fragment
     private void updateDialAndDeleteButtonEnabledState() {
         if (getActivity() == null) {
             return;
-        }
+		}
         final boolean digitsNotEmpty = !isDigitsEmpty();
+
         mDelete.setEnabled(digitsNotEmpty);
         // On CDMA phones, if we're already on a call, we *always* enable the Dial button (since
         // you can press it without entering any digits to send an empty flash.)
@@ -1588,9 +1911,16 @@ public class DialpadFragment extends Fragment
      * "temporarily" after the app boot.
      * @see TelephonyManager#getVoiceMailNumber()
      */
-    private boolean isVoicemailAvailable() {
+    private boolean isVoicemailAvailable(int simIndex) {
         try {
-            return getTelephonyManager().getVoiceMailNumber() != null;
+            String voicemail;
+            if (SimUtils.isPrimarySim(this.getActivity(), simIndex)) {
+                voicemail = TelephonyManager.getDefault().getVoiceMailNumber();
+            } else {
+                voicemail = ContactsUtils.getTelephonyManager2(getActivity()).getVoiceMailNumber();
+            }
+            return !TextUtils.isEmpty(voicemail);
+//          return getTelephonyManager().getVoiceMailNumber() != null; // in kk
         } catch (SecurityException se) {
             // Possibly no READ_PHONE_STATE privilege.
             Log.w(TAG, "SecurityException is thrown. Maybe privilege isn't sufficient.");
@@ -1663,14 +1993,20 @@ public class DialpadFragment extends Fragment
                             // doing anything here.
                             if (getActivity() == null) return;
                             mLastNumberDialed = number;
-                            updateDialAndDeleteButtonEnabledState();
+//                          updateDialAndDeleteButtonEnabledState();
+                            DialpadFragment.this.updateDialAndDeleteButtonEnabledState();
                         }
                     });
         mCallLog.getLastOutgoingCall(lastCallArgs);
     }
 
-    private Intent newFlashIntent() {
-        final Intent intent = CallUtil.getCallIntent(EMPTY_NUMBER);
+    private Intent newFlashIntent(int simIndex) {
+        final Intent intent;
+        if (mIsDualSimSupported) {
+            intent = ContactsUtils.getDualSimCallIntent(EMPTY_NUMBER, simIndex);
+        } else {
+            intent = CallUtil.getCallIntent(EMPTY_NUMBER);
+        }
         intent.putExtra(EXTRA_SEND_EMPTY_FLASH, true);
         return intent;
     }

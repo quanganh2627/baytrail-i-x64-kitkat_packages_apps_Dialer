@@ -17,7 +17,7 @@
 <resources>
 
     <!--  Search View -->
-    <dimen name="search_text_size">14sp</dimen>
+    <dimen name="search_text_size">16sp</dimen>
 
     <!--
           Drag to remove view (in dp because it is used in conjunction with a statically
@@ -43,6 +43,7 @@
     <!-- Defines the width of the vertical separator between
          the main area of a call log entry and the secondary action button. -->
     <dimen name="call_log_list_item_vertical_divider_width">1dp</dimen>
+
 
     <!-- Text dimensions for dialpad keys -->
     <dimen name="dialpad_key_numbers_size">40sp</dimen>
@@ -85,6 +86,7 @@
     <!-- Padding for the tooltip -->
     <dimen name="dismiss_button_padding_start">20dip</dimen>
     <dimen name="dismiss_button_padding_end">28dip</dimen>
+
 
     <!-- Padding above the favorites menu. -->
     <dimen name="favorites_menu_padding_top">6dp</dimen>
@@ -130,4 +132,19 @@
     <dimen name="tab_divider_padding">12dp</dimen>
     <!-- Size of text in tabs. -->
     <dimen name="tab_text_size">12sp</dimen>
+
+    <!--for DSDS-->
+    <dimen name="call_log_inner_margin_x2">16dip</dimen>
+    <dimen name="call_log_outer_margin_ds">8dip</dimen>
+    <dimen name="call_log_indent_margin_ds">16dip</dimen>
+    <dimen name="call_detail_contact_name_margin_ds">16dip</dimen>
+
+    <dimen name="dialpad_button_top_margin_compact">-6dip</dimen>
+    <dimen name="dialpad_bottom_padding_compact">5dip</dimen>
+
+    <!-- Layout weight values for dialpad screen. These layouts will be used in one
+         LinearLayout (dialpad_fragment.xml), configuring dialpad screen's vertical
+         ratio. -->
+    <integer name="dialpad_layout_weight_digits_compact">15</integer>
+    <integer name="dialpad_layout_weight_dialpad_compact">60</integer>
 </resources>

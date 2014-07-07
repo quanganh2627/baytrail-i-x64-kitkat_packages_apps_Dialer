@@ -722,7 +722,6 @@
 
     <!-- Content description for dismiss button on badge. [CHAR LIMIT=NONE] -->
     <string name="description_dismiss">Dismiss</string>
-
     <!-- Remove button that shows up when contact is long-pressed. [CHAR LIMIT=NONE] -->
     <string name="remove_contact">Remove</string>
 
@@ -751,4 +750,23 @@
     <!-- The font-family to use for tab text.
          Do not translate. -->
     <string name="tab_font_family">sans-serif</string>
+
+    <!--For DSDS-->
+    <string name="menu_filter_call_type">Call type</string>
+    <string name="menu_filter_call_origin">Call origin</string>
+    <string name="menu_show_sip_calls_only">Show internet calls only</string>
+    <string name="menu_show_sim_1_calls_only">Show SIM 1 calls only</string>
+    <string name="menu_show_sim_2_calls_only">Show SIM 2 calls only</string>
+    <string name="menu_show_all_origins">Show all origins</string>
+
+    <string name="select_sim_title">Select SIM card</string>
+    <string name="sim1Text">SIM 1</string>
+    <string name="sim2Text">SIM 2</string>
+    <string name="internetText">Internet</string>
+
+    <string name="voicemail_of">Voicemail of <xliff:g id="sim">%s</xliff:g></string>
+
+    <string name="clearCallLogConfirmation_ds">All your call records from <xliff:g id="sim">%1$s</xliff:g> will be deleted.</string>
+    <string name="clearSipCallLogConfirmation">All your internet call records will be deleted.</string>
+
 </resources>

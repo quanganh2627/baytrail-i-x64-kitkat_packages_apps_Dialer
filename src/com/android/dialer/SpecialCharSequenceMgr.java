@@ -37,7 +37,10 @@ import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.Toast;
 
+import com.android.contacts.common.ContactsUtils;
 import com.android.contacts.common.database.NoNullCursorAsyncQueryHandler;
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
 import com.android.internal.telephony.ITelephony;
 import com.android.internal.telephony.TelephonyCapabilities;
 import com.android.internal.telephony.TelephonyIntents;
@@ -59,6 +62,52 @@ public class SpecialCharSequenceMgr {
 
     private static final String MMI_IMEI_DISPLAY = "*#06#";
     private static final String MMI_REGULATORY_INFO_DISPLAY = "*#07#";
+
+    private static final String MMI_IMEI_PREFIX_1 = "1: ";
+    private static final String MMI_IMEI_PREFIX_2 = "2: ";
+
+    public interface SelectSimListener {
+        public void onItemClicked();
+        public void onItem2Clicked();
+    }
+
+    private static class SelectSimDialog implements DialogInterface.OnClickListener {
+        Context mContext;
+        SelectSimListener mListener;
+
+        public SelectSimDialog(Context context, SelectSimListener listener) {
+            mContext = context;
+            mListener = listener;
+        }
+
+        @Override
+        public void onClick(DialogInterface dialog, int which) {
+            if (mListener != null) {
+                switch (which) {
+                case 0:
+                    mListener.onItemClicked();
+                    break;
+                case 1:
+                    mListener.onItem2Clicked();
+                    break;
+                }
+            }
+            dialog.dismiss();
+        }
+
+        public void show() {
+            CharSequence[] items = new CharSequence[2];
+            items[0] = mContext.getText(R.string.sim1Text);
+            items[1] = mContext.getText(R.string.sim2Text);
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(mContext);
+            builder.setTitle(R.string.select_sim_title);
+            builder.setSingleChoiceItems(items, -1, this);
+            builder.setNegativeButton(android.R.string.cancel, null);
+            builder.setCancelable(true);
+            builder.create().show();
+        }
+    }
 
     /**
      * Remembers the previous {@link QueryHandler} and cancel the operation when needed, to
@@ -206,18 +255,19 @@ public class SpecialCharSequenceMgr {
                 sc.progressDialog.getWindow().addFlags(
                         WindowManager.LayoutParams.FLAG_BLUR_BEHIND);
 
-                // display the progress dialog
-                sc.progressDialog.show();
-
-                // run the query.
-                handler.startQuery(ADN_QUERY_TOKEN, sc, Uri.parse("content://icc/adn"),
-                        new String[]{ADN_PHONE_NUMBER_COLUMN_NAME}, null, null, null);
-
-                if (sPreviousAdnQueryHandler != null) {
-                    // It is harmless to call cancel() even after the handler's gone.
-                    sPreviousAdnQueryHandler.cancel();
+                if (ContactsUtils.isDualSimSupported()) {
+                    if (!SimUtils.isSimAccessible(context, DualSimConstants.DSDS_SLOT_1_ID)) {
+                        if (SimUtils.isSimAccessible(context, DualSimConstants.DSDS_SLOT_2_ID)) {
+                            sc.startQuery(SimUtils.getIccUri(context, DualSimConstants.DSDS_SLOT_2_ID));
+                        }
+                    } else if (!SimUtils.isSimAccessible(context, DualSimConstants.DSDS_SLOT_2_ID)) {
+                        sc.startQuery(SimUtils.getIccUri(context, DualSimConstants.DSDS_SLOT_1_ID));
+                    } else {
+                        new SelectSimDialog(context, sc).show();
+                    }
+                } else {
+                    sc.startQuery(SimUtils.getPrimaryIccUri());
                 }
-                sPreviousAdnQueryHandler = handler;
                 return true;
             } catch (NumberFormatException ex) {
                 // Ignore
@@ -226,14 +276,44 @@ public class SpecialCharSequenceMgr {
         return false;
     }
 
-    static boolean handlePinEntry(Context context, String input) {
+    static boolean handlePinEntry(final Context context, final String input) {
         if ((input.startsWith("**04") || input.startsWith("**05")) && input.endsWith("#")) {
-            try {
-                return ITelephony.Stub.asInterface(ServiceManager.getService("phone"))
-                        .handlePinMmi(input);
-            } catch (RemoteException e) {
-                Log.e(TAG, "Failed to handlePinMmi due to remote exception");
-                return false;
+            if (ContactsUtils.isDualSimSupported()) {
+                SelectSimListener listener = new SelectSimListener() {
+                    @Override
+                    public void onItemClicked() {
+                        handlePinMmi(DualSimConstants.DSDS_SLOT_1_ID);
+                    }
+
+                    @Override
+                    public void onItem2Clicked() {
+                        handlePinMmi(DualSimConstants.DSDS_SLOT_2_ID);
+                    }
+
+                    private void handlePinMmi(int simIndex) {
+                        try {
+                            if (SimUtils.isPrimarySim(context, simIndex)) {
+                                ITelephony.Stub.asInterface(ServiceManager.getService("phone"))
+                                    .handlePinMmi(input);
+                            } else {
+                                ITelephony.Stub.asInterface(ServiceManager.getService("phone2"))
+                                    .handlePinMmi(input);
+                            }
+                        } catch (RemoteException e) {
+                            Log.e(TAG, "Failed to handlePinMmi due to remote exception");
+                        }
+                    }
+                };
+                new SelectSimDialog(context, listener).show();
+                return true;
+            } else {
+                try {
+                    return ITelephony.Stub.asInterface(ServiceManager.getService("phone"))
+                            .handlePinMmi(input);
+                } catch (RemoteException e) {
+                    Log.e(TAG, "Failed to handlePinMmi due to remote exception");
+                    return false;
+                }
             }
         }
         return false;
@@ -283,9 +363,31 @@ public class SpecialCharSequenceMgr {
             TelephonyManager telephonyManager) {
         String imeiStr = telephonyManager.getDeviceId();
 
+        String message = null;
+        if (ContactsUtils.isDualSimSupported()) {
+            //get the secondary telephony manager
+            TelephonyManager telephonyManager2 = ContactsUtils.getTelephonyManager2(context);
+            if (telephonyManager2 != null) {
+                String imeiStr2 = telephonyManager2.getDeviceId();
+                StringBuffer buffer = new StringBuffer();
+                if (SimUtils.isPrimarySim(context, DualSimConstants.DSDS_SLOT_1_ID)) {
+                    buffer.append(MMI_IMEI_PREFIX_1).append(imeiStr).append("\n");
+                    buffer.append(MMI_IMEI_PREFIX_2).append(imeiStr2);
+                } else {
+                    buffer.append(MMI_IMEI_PREFIX_1).append(imeiStr2).append("\n");
+                    buffer.append(MMI_IMEI_PREFIX_2).append(imeiStr);
+                }
+                message = buffer.toString();
+            } else {
+                message = imeiStr;
+            }
+        } else {
+            message = imeiStr;
+        }
+
         AlertDialog alert = new AlertDialog.Builder(context)
                 .setTitle(R.string.imei)
-                .setMessage(imeiStr)
+                .setMessage(message)
                 .setPositiveButton(android.R.string.ok, null)
                 .setCancelable(false)
                 .show();
@@ -295,9 +397,31 @@ public class SpecialCharSequenceMgr {
             TelephonyManager telephonyManager) {
         String meidStr = telephonyManager.getDeviceId();
 
+        String message = null;
+        if (ContactsUtils.isDualSimSupported()) {
+            //get the secondary telephony manager
+            TelephonyManager telephonyManager2 = ContactsUtils.getTelephonyManager2(context);
+            if (telephonyManager2 != null) {
+                String meidStr2 = telephonyManager2.getDeviceId();
+                StringBuffer buffer = new StringBuffer();
+                if (SimUtils.isPrimarySim(context, DualSimConstants.DSDS_SLOT_1_ID)) {
+                    buffer.append(MMI_IMEI_PREFIX_1).append(meidStr).append("\n");
+                    buffer.append(MMI_IMEI_PREFIX_2).append(meidStr2);
+                } else {
+                    buffer.append(MMI_IMEI_PREFIX_1).append(meidStr2).append("\n");
+                    buffer.append(MMI_IMEI_PREFIX_2).append(meidStr);
+                }
+                message = buffer.toString();
+            } else {
+                message = meidStr;
+            }
+        } else {
+            message = meidStr;
+        }
+
         AlertDialog alert = new AlertDialog.Builder(context)
                 .setTitle(R.string.meid)
-                .setMessage(meidStr)
+                .setMessage(message)
                 .setPositiveButton(android.R.string.ok, null)
                 .setCancelable(false)
                 .show();
@@ -318,7 +442,8 @@ public class SpecialCharSequenceMgr {
      * Note, access to the textField field is going to be synchronized, because
      * the user can request a cancel at any time through the UI.
      */
-    private static class SimContactQueryCookie implements DialogInterface.OnCancelListener{
+    private static class SimContactQueryCookie implements DialogInterface.OnCancelListener,
+            SelectSimListener {
         public ProgressDialog progressDialog;
         public int contactNum;
 
@@ -365,6 +490,33 @@ public class SpecialCharSequenceMgr {
 
             // Cancel the operation if possible.
             mHandler.cancelOperation(mToken);
+        }
+
+        @Override
+        public void onItemClicked() {
+            startQuery(SimUtils.getIccUri(progressDialog.getContext(),
+                    DualSimConstants.DSDS_SLOT_1_ID));
+        }
+
+        @Override
+        public void onItem2Clicked() {
+            startQuery(SimUtils.getIccUri(progressDialog.getContext(),
+                    DualSimConstants.DSDS_SLOT_2_ID));
+        }
+
+        public void startQuery(Uri uri) {
+            // display the progress dialog
+            progressDialog.show();
+
+            // run the query.
+            mHandler.startQuery(ADN_QUERY_TOKEN, this, uri,
+                    new String[]{ADN_PHONE_NUMBER_COLUMN_NAME}, null, null, null);
+
+            if (sPreviousAdnQueryHandler != null) {
+                // It is harmless to call cancel() even after the handler's gone.
+                sPreviousAdnQueryHandler.cancel();
+            }
+            sPreviousAdnQueryHandler = mHandler;
         }
     }
 

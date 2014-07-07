@@ -18,6 +18,7 @@ package com.android.dialerbind;
 
 import static com.android.dialer.calllog.CallLogAdapter.CallFetcher;
 
+import android.app.FragmentManager;
 import android.content.Context;
 
 import com.android.dialer.calllog.CallLogAdapter;
@@ -50,4 +51,12 @@ public class ObjectFactory {
         return new CallLogAdapter(context, callFetcher, contactInfoHelper, hideSecondaryAction,
                 isCallLog);
     }
+
+    public static CallLogAdapter newCallLogAdapter(Context context, CallFetcher callFetcher, FragmentManager fragmentManager,
+            ContactInfoHelper contactInfoHelper, boolean useCallAsPrimaryAction,
+            boolean isCallLog) {
+        return new CallLogAdapter(context, callFetcher, fragmentManager, contactInfoHelper, useCallAsPrimaryAction,
+                isCallLog);
+    }
+
 }

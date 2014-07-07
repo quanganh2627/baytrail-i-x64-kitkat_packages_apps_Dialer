@@ -34,4 +34,6 @@
          Ignored if empty. -->
     <string name="config_prohibited_phone_number_regexp"></string>
 
+    <bool name="config_support_smart_dialog">false</bool>
+
 </resources>

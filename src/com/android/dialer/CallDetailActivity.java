@@ -54,7 +54,7 @@ import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
-
+import com.android.contacts.common.ContactsUtils;
 import com.android.contacts.common.ContactPhotoManager;
 import com.android.contacts.common.CallUtil;
 import com.android.contacts.common.ClipboardUtils;
@@ -78,6 +78,11 @@ import com.android.dialer.voicemail.VoicemailStatusHelper.StatusMessage;
 import com.android.dialer.voicemail.VoicemailStatusHelperImpl;
 
 import java.util.List;
+
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
+import com.android.contacts.common.format.FormatUtils;
+
 
 /**
  * Displays the details of a specific call log entry.
@@ -116,6 +121,8 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
     /** If the activity was triggered from a notification. */
     public static final String EXTRA_FROM_NOTIFICATION = "EXTRA_FROM_NOTIFICATION";
 
+    private static final String CallLog_Calls_IMSI = "imsi";
+
     private CallTypeHelper mCallTypeHelper;
     private PhoneNumberDisplayHelper mPhoneNumberHelper;
     private PhoneCallDetailsHelper mPhoneCallDetailsHelper;
@@ -126,6 +133,7 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
     private ImageView mContactBackgroundView;
     private AsyncTaskExecutor mAsyncTaskExecutor;
     private ContactInfoHelper mContactInfoHelper;
+    private PhoneNumberUtilsWrapper mPhoneNumberUtilsWrapper;
 
     private String mNumber = null;
     private String mDefaultCountryIso;
@@ -221,6 +229,7 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
         CallLog.Calls.COUNTRY_ISO,
         CallLog.Calls.GEOCODED_LOCATION,
         CallLog.Calls.NUMBER_PRESENTATION,
+		CallLog_Calls_IMSI,
     };
 
     static final int DATE_COLUMN_INDEX = 0;
@@ -230,6 +239,7 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
     static final int COUNTRY_ISO_COLUMN_INDEX = 4;
     static final int GEOCODED_LOCATION_COLUMN_INDEX = 5;
     static final int NUMBER_PRESENTATION_COLUMN_INDEX = 6;
+    static final int IMSI_COLUMN_INDEX = 7;
 
     private final View.OnClickListener mPrimaryActionListener = new View.OnClickListener() {
         @Override
@@ -238,6 +248,16 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
                 return;
             }
             startActivity(((ViewEntry) view.getTag()).primaryIntent);
+        }
+    };
+
+    private final View.OnClickListener mPrimary2ActionListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View view) {
+            if (finishPhoneNumerSelectedActionModeIfShown()) {
+                return;
+            }
+            startActivity(((ViewEntry) view.getTag()).primary2Intent);
         }
     };
 
@@ -296,7 +316,9 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
     protected void onCreate(Bundle icicle) {
         super.onCreate(icicle);
 
-        setContentView(R.layout.call_detail);
+        int resource = ContactsUtils.isDualSimSupported() ?
+                R.layout.call_detail_ds : R.layout.call_detail;
+        setContentView(resource);
 
         mAsyncTaskExecutor = AsyncTaskExecutors.createThreadPoolExecutor();
         mInflater = (LayoutInflater) getSystemService(LAYOUT_INFLATER_SERVICE);
@@ -468,6 +490,7 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
                 final int numberPresentation = firstDetails.numberPresentation;
                 final Uri contactUri = firstDetails.contactUri;
                 final Uri photoUri = firstDetails.photoUri;
+                final int simIndex = firstDetails.simIndex;
 
                 // Set the details header, based on the first phone call.
                 mPhoneCallDetailsHelper.setCallDetailsHeader(mHeaderTextView, firstDetails);
@@ -476,7 +499,7 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
                 final boolean canPlaceCallsTo =
                     PhoneNumberUtilsWrapper.canPlaceCallsTo(mNumber, numberPresentation);
                 final PhoneNumberUtilsWrapper phoneUtils = new PhoneNumberUtilsWrapper();
-                final boolean isVoicemailNumber = phoneUtils.isVoicemailNumber(mNumber);
+                final boolean isVoicemailNumber = phoneUtils.isVoicemailNumber(mNumber, simIndex);
                 final boolean isSipNumber = phoneUtils.isSipNumber(mNumber);
 
                 // Let user view contact details if they exist, otherwise add option to create new
@@ -551,16 +574,30 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
                         mPhoneNumberHelper.getDisplayNumber(
                                 firstDetails.number,
                                 firstDetails.numberPresentation,
-                                firstDetails.formattedNumber);
+                                firstDetails.formattedNumber,
+                                simIndex);
 
                 // This action allows to call the number that places the call.
                 if (canPlaceCallsTo) {
-                    ViewEntry entry = new ViewEntry(
+
+                    ViewEntry entry = null;
+                    if (ContactsUtils.isDualSimSupported() && !isSipNumber) {
+                        entry = new ViewEntry(
+                                getString(R.string.menu_callNumber,
+                                        FormatUtils.forceLeftToRight(displayNumber)),
+                                        CallUtil.getDualSimCallIntent(mNumber,
+                                                DualSimConstants.DSDS_SLOT_1_ID),
+                                        CallUtil.getDualSimCallIntent(mNumber,
+                                                DualSimConstants.DSDS_SLOT_2_ID),
+                                        getString(R.string.description_call, nameOrNumber));
+                    } else {
+                            entry = new ViewEntry(
+
                             getString(R.string.menu_callNumber,
                                     forceLeftToRight(displayNumber)),
                                     CallUtil.getCallIntent(mNumber),
                                     getString(R.string.description_call, nameOrNumber));
-
+                    }
                     // Only show a label if the number is shown and it is not a SIP address.
                     if (!TextUtils.isEmpty(firstDetails.name)
                             && !TextUtils.isEmpty(firstDetails.number)
@@ -692,6 +729,11 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
             final int callType = callCursor.getInt(CALL_TYPE_COLUMN_INDEX);
             String countryIso = callCursor.getString(COUNTRY_ISO_COLUMN_INDEX);
             final String geocode = callCursor.getString(GEOCODED_LOCATION_COLUMN_INDEX);
+            final String imsi = callCursor.getString(IMSI_COLUMN_INDEX);
+            int simIndex = DualSimConstants.DSDS_INVALID_SLOT_ID;
+            if (ContactsUtils.isDualSimSupported()) {
+                simIndex = SimUtils.getSimIndexByImsi(CallDetailActivity.this, imsi);
+            }
 
             if (TextUtils.isEmpty(countryIso)) {
                 countryIso = mDefaultCountryIso;
@@ -709,12 +751,12 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
             // If this is not a regular number, there is no point in looking it up in the contacts.
             ContactInfo info =
                     PhoneNumberUtilsWrapper.canPlaceCallsTo(number, numberPresentation)
-                    && !new PhoneNumberUtilsWrapper().isVoicemailNumber(number)
+                    && !new PhoneNumberUtilsWrapper().isVoicemailNumber(number, simIndex)
                             ? mContactInfoHelper.lookupNumber(number, countryIso)
                             : null;
             if (info == null) {
                 formattedNumber = mPhoneNumberHelper.getDisplayNumber(number,
-                        numberPresentation, null);
+                        numberPresentation, null, simIndex);
                 nameText = "";
                 numberType = 0;
                 numberLabel = "";
@@ -733,7 +775,8 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
             return new PhoneCallDetails(number, numberPresentation,
                     formattedNumber, countryIso, geocode,
                     new int[]{ callType }, date, duration,
-                    nameText, numberType, numberLabel, lookupUri, photoUri, sourceType);
+                    nameText, numberType, numberLabel, lookupUri, photoUri, sourceType, imsi, simIndex);
+
         } finally {
             if (callCursor != null) {
                 callCursor.close();
@@ -753,6 +796,7 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
     static final class ViewEntry {
         public final String text;
         public final Intent primaryIntent;
+        public final Intent primary2Intent;
         /** The description for accessibility of the primary action. */
         public final String primaryDescription;
 
@@ -767,6 +811,14 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
         public ViewEntry(String text, Intent intent, String description) {
             this.text = text;
             primaryIntent = intent;
+            primary2Intent = null;
+            primaryDescription = description;
+        }
+
+        public ViewEntry(String text, Intent intent, Intent intent2, String description) {
+            this.text = text;
+            primaryIntent = intent;
+            primary2Intent = intent2;
             primaryDescription = description;
         }
 
@@ -791,11 +843,41 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
         View divider = convertView.findViewById(R.id.call_and_sms_divider);
         TextView text = (TextView) convertView.findViewById(R.id.call_and_sms_text);
 
+        ImageView icon1 = (ImageView) convertView.findViewById(R.id.call_and_sms_icon_1);
+        ImageView icon2 = (ImageView) convertView.findViewById(R.id.call_and_sms_icon_2);
+        View divider2 = convertView.findViewById(R.id.call_and_sms_divider_2);
+
         View mainAction = convertView.findViewById(R.id.call_and_sms_main_action);
         mainAction.setOnClickListener(mPrimaryActionListener);
         mainAction.setTag(entry);
         mainAction.setContentDescription(entry.primaryDescription);
         mainAction.setOnLongClickListener(mPrimaryLongClickListener);
+
+        if (entry.primary2Intent != null) {
+            if (icon1 != null) {
+                icon1.setVisibility(View.VISIBLE);
+            }
+            if (icon2 != null) {
+                icon2.setOnClickListener(mPrimary2ActionListener);
+                icon2.setVisibility(View.VISIBLE);
+                icon2.setTag(entry);
+                icon2.setContentDescription(entry.primaryDescription);
+            }
+            if (divider2 != null) {
+                divider2.setVisibility(View.VISIBLE);
+            }
+            updateCallButtonEnabledState();
+        } else {
+            if (icon1 != null) {
+                icon1.setVisibility(View.GONE);
+            }
+            if (icon2 != null) {
+                icon2.setVisibility(View.GONE);
+            }
+            if (divider2 != null) {
+                divider2.setVisibility(View.GONE);
+            }
+        }
 
         if (entry.secondaryIntent != null) {
             icon.setOnClickListener(mSecondaryActionListener);
@@ -816,6 +898,35 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
         } else {
             label.setText(entry.label);
             label.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void updateCallButtonEnabledState() {
+        View convertView = findViewById(R.id.call_and_sms);
+        if (convertView == null || convertView.getVisibility() != View.VISIBLE) {
+            return;
+        }
+
+        ImageView icon1 = (ImageView) convertView.findViewById(R.id.call_and_sms_icon_1);
+        ImageView icon2 = (ImageView) convertView.findViewById(R.id.call_and_sms_icon_2);
+
+        if (icon1 != null && icon1.getVisibility() == View.VISIBLE) {
+            View mainAction = convertView.findViewById(R.id.call_and_sms_main_action);
+            if (mainAction != null && SimUtils.isSim1Ready(this)) {
+                mainAction.setOnClickListener(mPrimaryActionListener);
+                icon1.setEnabled(true);
+            } else {
+                mainAction.setOnClickListener(null);
+                icon1.setEnabled(false);
+            }
+        }
+
+        if (icon2 != null && icon2.getVisibility() == View.VISIBLE) {
+            if (SimUtils.isSim2Ready(this)) {
+                icon2.setEnabled(true);
+            } else {
+                icon2.setEnabled(false);
+            }
         }
     }
 

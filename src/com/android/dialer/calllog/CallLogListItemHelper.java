@@ -16,11 +16,17 @@
 
 package com.android.dialer.calllog;
 
+import android.content.Context;
 import android.content.res.Resources;
 import android.provider.CallLog;
 import android.provider.CallLog.Calls;
+import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
 import android.view.View;
+
+import com.android.contacts.common.ContactsUtils;
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
 
 import com.android.dialer.PhoneCallDetails;
 import com.android.dialer.PhoneCallDetailsHelper;
@@ -64,6 +70,8 @@ import com.android.dialer.R;
                 isHighlighted);
         boolean canPlay = details.callTypes[0] == Calls.VOICEMAIL_TYPE;
 
+
+// 4.4.4 new
         // Set the accessibility text for the contact badge
         views.quickContactView.setContentDescription(getContactBadgeDescription(details));
 
@@ -73,6 +81,22 @@ import com.android.dialer.R;
         // If secondary action is visible, either show voicemail playback icon, or
         // show the "clock" icon corresponding to the call details screen.
         if (showSecondaryActionButton) {
+            if (views.phoneCallDetailsViews.simIndexView != null) {
+                switch (details.simIndex) {
+                case DualSimConstants.DSDS_SLOT_1_ID:
+                    views.phoneCallDetailsViews.simIndexView.setVisibility(View.VISIBLE);
+                    views.phoneCallDetailsViews.simIndexView.setImageResource(R.drawable.ic_call_1);
+                    break;
+                case DualSimConstants.DSDS_SLOT_2_ID:
+                    views.phoneCallDetailsViews.simIndexView.setVisibility(View.VISIBLE);
+                    views.phoneCallDetailsViews.simIndexView.setImageResource(R.drawable.ic_call_2);
+                    break;
+                default:
+                // The sim card which made the call is not in the phone
+                    views.phoneCallDetailsViews.simIndexView.setVisibility(View.GONE);
+                    break;
+                }
+            }
             if (canPlay) {
                 // Playback action takes preference.
                 configurePlaySecondaryAction(views, isHighlighted);
@@ -94,6 +118,30 @@ import com.android.dialer.R;
      */
     private void configureCallDetailsSecondaryAction(CallLogListItemViews views,
             PhoneCallDetails details) {
+        int resId = R.drawable.ic_ab_dialer_holo_dark;
+        boolean enabled = true;
+        switch (details.simIndex) {
+        case DualSimConstants.DSDS_SLOT_1_ID:
+            resId = R.drawable.ic_ab_dialer_holo_dark_1;
+            break;
+        case DualSimConstants.DSDS_SLOT_2_ID:
+            resId = R.drawable.ic_ab_dialer_holo_dark_2;
+            break;
+        default:
+            if (ContactsUtils.isDualSimSupported()) {
+                if (!PhoneNumberUtils.isUriNumber((String)details.number)) {
+                    Context context = mPhoneNumberHelper.getContext();
+                    if (!SimUtils.isSim1Ready(context) && !SimUtils.isSim2Ready(context)) {
+                        resId = R.drawable.ic_ab_dialer_disabled_holo_dark;
+                        enabled = false;
+                    }
+                }
+            }
+            break;
+        }
+//4.4.4 cannot find setImageResource
+//        views.secondaryActionView.setImageResource(resId);
+        views.secondaryActionView.setEnabled(enabled);
         views.secondaryActionView.setVisibility(View.VISIBLE);
         // Use the small dark grey clock icon.
         views.secondaryActionButtonView.setImageResource(R.drawable.ic_menu_history_dk);
@@ -256,7 +304,7 @@ import com.android.dialer.R;
             recipient = details.name;
         } else {
             recipient = mPhoneNumberHelper.getDisplayNumber(
-                    details.number, details.numberPresentation, details.formattedNumber);
+                    details.number, details.numberPresentation, details.formattedNumber, details.simIndex);
         }
         return recipient;
     }

@@ -22,10 +22,15 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.CallLog.Calls;
+import android.telephony.PhoneNumberUtils;
 import android.util.Log;
 
 import com.android.contacts.common.CallUtil;
+import com.android.contacts.common.util.DualSimConstants;
+import com.android.contacts.common.util.SimUtils;
+import com.android.contacts.common.ContactsUtils;
 import com.android.dialer.CallDetailActivity;
+
 
 /**
  * Used to create an intent to attach to an action in the call log.
@@ -37,12 +42,43 @@ public abstract class IntentProvider {
     private static final String TAG = IntentProvider.class.getSimpleName();
 
     public abstract Intent getIntent(Context context);
+    public abstract Intent getIntent2(Context context);
 
     public static IntentProvider getReturnCallIntentProvider(final String number) {
+        return getReturnCallIntentProvider(number, DualSimConstants.DSDS_INVALID_SLOT_ID);
+    }
+
+    public static IntentProvider getReturnCallIntentProvider(final String number,
+            final int preferredSim) {
         return new IntentProvider() {
+            private boolean mIsUriNumber = PhoneNumberUtils.isUriNumber(number);
+            private boolean mIsDualSimSupported = ContactsUtils.isDualSimSupported();
+
             @Override
             public Intent getIntent(Context context) {
+                if (mIsDualSimSupported && !mIsUriNumber) {
+                    if (preferredSim != DualSimConstants.DSDS_SLOT_2_ID) {
+                        if (SimUtils.isSim1Ready(context)) {
+                            return CallUtil.getDualSimCallIntent(number,
+                                    DualSimConstants.DSDS_SLOT_1_ID);
+                        }
+                    }
+                    return null;
+                }
                 return CallUtil.getCallIntent(number);
+            }
+
+            @Override
+            public Intent getIntent2(Context context) {
+                if (mIsDualSimSupported && !mIsUriNumber) {
+                    if (preferredSim != DualSimConstants.DSDS_SLOT_1_ID) {
+                        if (SimUtils.isSim2Ready(context)) {
+                            return CallUtil.getDualSimCallIntent(number,
+                                    DualSimConstants.DSDS_SLOT_2_ID);
+                        }
+                    }
+                }
+                return null;
             }
         };
     }
@@ -61,6 +97,11 @@ public abstract class IntentProvider {
                 }
                 intent.putExtra(CallDetailActivity.EXTRA_VOICEMAIL_START_PLAYBACK, true);
                 return intent;
+            }
+
+            @Override
+            public Intent getIntent2(Context context) {
+                return null;
             }
         };
     }
@@ -104,6 +145,11 @@ public abstract class IntentProvider {
                             Calls.CONTENT_URI_WITH_VOICEMAIL, id));
                 }
                 return intent;
+            }
+
+            @Override
+            public Intent getIntent2(Context context) {
+                return null;
             }
         };
     }

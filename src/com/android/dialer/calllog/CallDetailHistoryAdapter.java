@@ -17,16 +17,22 @@
 package com.android.dialer.calllog;
 
 import android.content.Context;
+import android.content.res.Resources;
 import android.provider.CallLog.Calls;
 import android.text.format.DateUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.android.dialer.PhoneCallDetails;
 import com.android.dialer.R;
+
+import com.android.contacts.common.ContactsUtils;
+import com.android.contacts.common.util.DualSimConstants;
+
 
 /**
  * Adapter for a ListView containing history items from the details of a call.
@@ -129,9 +135,19 @@ public class CallDetailHistoryAdapter extends BaseAdapter {
         }
 
         // Make sure we have a valid convertView to start with
+        int resource = ContactsUtils.isDualSimSupported() ?
+                R.layout.call_detail_history_item_ds : R.layout.call_detail_history_item;
         final View result  = convertView == null
-                ? mLayoutInflater.inflate(R.layout.call_detail_history_item, parent, false)
+                ? mLayoutInflater.inflate(resource, parent, false)
                 : convertView;
+
+        if (ContactsUtils.isDualSimSupported()) {
+            final Resources res = mContext.getResources();
+            int leftPadding = res.getDimensionPixelOffset(R.dimen.call_log_indent_margin_ds);
+            int rightPadding = res.getDimensionPixelOffset(R.dimen.call_log_outer_margin_ds);
+            result.setPadding(leftPadding, result.getPaddingTop(), rightPadding,
+                    result.getPaddingBottom());
+        }
 
         PhoneCallDetails details = mPhoneCallDetails[position - 1];
         CallTypeIconsView callTypeIconView =
@@ -139,6 +155,7 @@ public class CallDetailHistoryAdapter extends BaseAdapter {
         TextView callTypeTextView = (TextView) result.findViewById(R.id.call_type_text);
         TextView dateView = (TextView) result.findViewById(R.id.date);
         TextView durationView = (TextView) result.findViewById(R.id.duration);
+        ImageView simIndexView = (ImageView) result.findViewById(R.id.sim_index);
 
         int callType = details.callTypes[0];
         callTypeIconView.clear();
@@ -150,11 +167,27 @@ public class CallDetailHistoryAdapter extends BaseAdapter {
                 DateUtils.FORMAT_SHOW_WEEKDAY | DateUtils.FORMAT_SHOW_YEAR);
         dateView.setText(dateValue);
         // Set the duration
-        if (Calls.VOICEMAIL_TYPE == callType || CallTypeHelper.isMissedCallType(callType)) {
+        if (callType == Calls.MISSED_TYPE || callType == Calls.VOICEMAIL_TYPE) {
             durationView.setVisibility(View.GONE);
         } else {
             durationView.setVisibility(View.VISIBLE);
             durationView.setText(formatDuration(details.duration));
+        }
+        // Set sim index
+        if (simIndexView != null) {
+            switch (details.simIndex) {
+            case DualSimConstants.DSDS_SLOT_1_ID:
+                simIndexView.setVisibility(View.VISIBLE);
+                simIndexView.setImageResource(R.drawable.ic_call_1);
+                break;
+            case DualSimConstants.DSDS_SLOT_2_ID:
+                simIndexView.setVisibility(View.VISIBLE);
+                simIndexView.setImageResource(R.drawable.ic_call_2);
+                break;
+            default:
+                simIndexView.setVisibility(View.GONE);
+                break;
+            }
         }
 
         return result;
