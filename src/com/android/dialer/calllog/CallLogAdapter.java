@@ -58,7 +58,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 
 import java.util.LinkedList;
-
+import android.util.Log;
 /**
  * Adapter class to fill in data for the Call Log.
  */
@@ -190,6 +190,8 @@ public class CallLogAdapter extends GroupingListAdapter
     private final ContactPhotoManager mContactPhotoManager;
     /** Helper to parse and process phone numbers. */
     private PhoneNumberDisplayHelper mPhoneNumberHelper;
+	
+    private PhoneNumberUtilsWrapper mPhoneNumberUtilsWrapper;
     /** Helper to group call log entries. */
     private final CallLogGroupBuilder mCallLogGroupBuilder;
 
@@ -291,7 +293,7 @@ public class CallLogAdapter extends GroupingListAdapter
         mContactInfoHelper = contactInfoHelper;
         mShowSecondaryActionButton = showSecondaryActionButton;
         mIsCallLog = isCallLog;
-
+        mPhoneNumberUtilsWrapper = new PhoneNumberUtilsWrapper(mContext);
         mContactInfoCache = ExpirableCache.create(CONTACT_INFO_CACHE_SIZE);
         mRequests = new LinkedList<ContactInfoRequest>();
 
@@ -300,10 +302,10 @@ public class CallLogAdapter extends GroupingListAdapter
 
         mContactPhotoManager = ContactPhotoManager.getInstance(mContext);
 
-        mPhoneNumberHelper = new PhoneNumberDisplayHelper(resources);
-
+//        mPhoneNumberHelper = new PhoneNumberDisplayHelper(resources);
+         mPhoneNumberHelper = new PhoneNumberDisplayHelper(mContext, mPhoneNumberUtilsWrapper, resources);
         PhoneCallDetailsHelper phoneCallDetailsHelper = new PhoneCallDetailsHelper(
-                resources, callTypeHelper, new PhoneNumberUtilsWrapper(mContext));
+                resources, callTypeHelper, mPhoneNumberUtilsWrapper);
         mCallLogViewsHelper =
                 new CallLogListItemHelper(
                         phoneCallDetailsHelper, mPhoneNumberHelper, resources);
@@ -590,14 +592,21 @@ public class CallLogAdapter extends GroupingListAdapter
         final boolean isVoicemailNumber =
                 PhoneNumberUtilsWrapper.INSTANCE.isVoicemailNumber(number);
 
-        // Primary action is always to call, if possible.
         if (PhoneNumberUtilsWrapper.canPlaceCallsTo(number, numberPresentation)) {
-            // Sets the primary action to call the number.
-            views.primaryActionView.setTag(IntentProvider.getReturnCallIntentProvider(number));
-        } else {
-            views.primaryActionView.setTag(null);
-        }
-
+                if (ContactsUtils.isDualSimSupported()) {
+               // Sets the primary action to open call detail page.
+                       views.primaryActionView.setTag(
+                                IntentProvider.getCallDetailIntentProvider(
+                                      getCursor(), c.getPosition(), c.getLong(CallLogQuery.ID), count));
+                } else {
+                       // Sets the primary action to call the number.
+                       views.primaryActionView.setTag(IntentProvider.getReturnCallIntentProvider(number));
+                }
+			
+         } else {
+             views.primaryActionView.setTag(null);
+         }
+ 			
         if ( mShowSecondaryActionButton ) {
             // Store away the voicemail information so we can play it directly.
             if (callType == Calls.VOICEMAIL_TYPE) {
@@ -605,19 +614,15 @@ public class CallLogAdapter extends GroupingListAdapter
                 final long rowId = c.getLong(CallLogQuery.ID);
                 views.secondaryActionButtonView.setTag(
                         IntentProvider.getPlayVoicemailIntentProvider(rowId, voicemailUri));
-            } else {
+//            } else {
+              } else if (!TextUtils.isEmpty(number)) {
                 // Store the call details information.
-
 								
                 if (simIndex == DualSimConstants.DSDS_INVALID_SLOT_ID) {
                 views.secondaryActionButtonView.setTag(
-          //              IntentProvider.getCallDetailIntentProvider(
-          //                      getCursor(), c.getPosition(), c.getLong(CallLogQuery.ID), count, mPreferredReturnCallSim));
                          IntentProvider.getReturnCallIntentProvider(number, mPreferredReturnCallSim));
                  } else {
                 views.secondaryActionButtonView.setTag(
-//                        IntentProvider.getCallDetailIntentProvider(
-//                                getCursor(), c.getPosition(), c.getLong(CallLogQuery.ID), count, simIndex));
                            IntentProvider.getReturnCallIntentProvider(number, simIndex));
                  }
 

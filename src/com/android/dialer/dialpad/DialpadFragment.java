@@ -44,6 +44,7 @@ import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemProperties;
+import android.provider.ContactsContract.Contacts;
 import android.provider.Contacts.People;
 import android.provider.Contacts.Phones;
 import android.provider.Contacts.PhonesColumns;
@@ -89,7 +90,6 @@ import com.android.contacts.common.CallUtil;
 import com.android.contacts.common.GeoUtil;
 import com.android.contacts.common.util.PhoneNumberFormatter;
 import com.android.contacts.common.util.StopWatch;
-import com.android.contacts.common.util.ContactLocaleUtils;
 import com.android.dialer.NeededForReflection;
 import com.android.dialer.DialtactsActivity;
 import com.android.dialer.R;
@@ -105,7 +105,7 @@ import com.android.dialer.interactions.SelectSimDialogFragment;
 
 import com.android.contacts.common.ContactPhotoManager;
 import com.android.contacts.common.preference.ContactsPreferences;
-//import com.android.contacts.common.util.ContactLocaleUtils;
+import com.android.contacts.common.util.ContactLocaleUtils;
 import com.android.contacts.common.util.DualSimConstants;
 import com.android.contacts.common.util.SimUtils;
 import com.android.internal.telephony.TelephonyConstants;
@@ -857,7 +857,6 @@ public class DialpadFragment extends Fragment
         fragmentView.findViewById(R.id.zero).setOnLongClickListener(this);
 
     }
-
 
     @Override
     public void onResume() {
@@ -1780,7 +1779,7 @@ public class DialpadFragment extends Fragment
      * @return true if the phone is "in use", meaning that at least one line
      *              is active (ie. off hook or ringing or dialing).
      */
-    public static boolean phoneIsInUse() {
+    public boolean phoneIsInUse() {
         boolean phoneInUse = false;
         try {
             ITelephony phone = ITelephony.Stub.asInterface(ServiceManager.checkService("phone"));
@@ -1993,7 +1992,7 @@ public class DialpadFragment extends Fragment
                             // doing anything here.
                             if (getActivity() == null) return;
                             mLastNumberDialed = number;
-//                          updateDialAndDeleteButtonEnabledState();
+                            updateDialAndDeleteButtonEnabledState();
                             DialpadFragment.this.updateDialAndDeleteButtonEnabledState();
                         }
                     });

@@ -166,17 +166,11 @@ public class CallLogQueryHandler extends NoNullCursorAsyncQueryHandler {
             imsi = SimUtils.getSimImsi(context, simIndex);
             break;
         }
+        int requestId = newCallsRequest();
+        //TODO. DSDS
+//        fetchCalls(QUERY_CALLLOG_TOKEN, requestId, callType, imsi, false /* newOnly */, 0);
+        fetchCalls(QUERY_CALLLOG_TOKEN, requestId, null,callType,  false /* newOnly */, 0);
 
-        if (simIndex == CallLogFragment.CALL_ORIGIN_ALL ||
-                !TextUtils.isEmpty(imsi)) {
-            int requestId = newCallsRequest();
-            //fetchCalls(QUERY_NEW_CALLS_TOKEN, requestId, imsi, true /*isNew*/, callType);
-            //fetchCalls(QUERY_OLD_CALLS_TOKEN, requestId, imsi, false /*isNew*/, callType);
-            fetchCalls(QUERY_CALLLOG_TOKEN, requestId, imsi, callType, false /* newOnly */, 0);
-			
-        } else {
-            updateAdapterData(null);
-        }
     }
 	
     public void fetchVoicemailStatus() {

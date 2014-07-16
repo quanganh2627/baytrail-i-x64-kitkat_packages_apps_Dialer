@@ -68,6 +68,8 @@ import com.android.dialer.R;
             boolean isHighlighted, boolean showSecondaryActionButton) {
         mPhoneCallDetailsHelper.setPhoneCallDetails(views.phoneCallDetailsViews, details,
                 isHighlighted);
+        boolean canCall = PhoneNumberUtilsWrapper.canPlaceCallsTo(details.number,
+                details.numberPresentation);
         boolean canPlay = details.callTypes[0] == Calls.VOICEMAIL_TYPE;
 
 
@@ -100,7 +102,7 @@ import com.android.dialer.R;
             if (canPlay) {
                 // Playback action takes preference.
                 configurePlaySecondaryAction(views, isHighlighted);
-            } else {
+        } else if (canCall ) {
                 // Call details is the secondary action.
                 configureCallDetailsSecondaryAction(views, details);
             }
@@ -139,12 +141,12 @@ import com.android.dialer.R;
             }
             break;
         }
-//4.4.4 cannot find setImageResource
-//        views.secondaryActionView.setImageResource(resId);
-        views.secondaryActionView.setEnabled(enabled);
-        views.secondaryActionView.setVisibility(View.VISIBLE);
+        views.secondaryActionButtonView.setImageResource(resId);
+        views.secondaryActionButtonView.setEnabled(enabled);
+        views.secondaryActionButtonView.setVisibility(View.VISIBLE);
         // Use the small dark grey clock icon.
-        views.secondaryActionButtonView.setImageResource(R.drawable.ic_menu_history_dk);
+//        views.secondaryActionButtonView.setImageResource(R.drawable.ic_menu_history_dk);
+
         views.secondaryActionButtonView.setContentDescription(
                 mResources.getString(R.string.description_call_details));
     }

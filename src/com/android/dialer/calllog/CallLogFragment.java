@@ -128,9 +128,6 @@ public class CallLogFragment extends ListFragment
         @Override
         public void onChange(boolean selfChange) {
             mRefreshDataRequired = true;
-            if (isResumed()) {
-                refreshData();
-            }
         }
     }
 
@@ -353,12 +350,6 @@ public class CallLogFragment extends ListFragment
         mAdapter.stopRequestProcessing();
 
         if (ContactsUtils.isDualSimSupported()) {
-            Editor editor = PreferenceManager.getDefaultSharedPreferences(
-                    getActivity()).edit();
-            editor.putInt(PREF_CALL_TYPE, mCallTypeFilter);
-            editor.putInt(PREF_CALL_ORIGIN, mCallOriginFilter);
-            editor.apply();
-
             getActivity().unregisterReceiver(mSimStateReceiver);
         }
     }

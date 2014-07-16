@@ -53,9 +53,9 @@ public class ObjectFactory {
     }
 
     public static CallLogAdapter newCallLogAdapter(Context context, CallFetcher callFetcher, FragmentManager fragmentManager,
-            ContactInfoHelper contactInfoHelper, boolean useCallAsPrimaryAction,
+            ContactInfoHelper contactInfoHelper, boolean hideSecondaryAction,
             boolean isCallLog) {
-        return new CallLogAdapter(context, callFetcher, fragmentManager, contactInfoHelper, useCallAsPrimaryAction,
+        return new CallLogAdapter(context, callFetcher, fragmentManager, contactInfoHelper, hideSecondaryAction,
                 isCallLog);
     }
 

@@ -186,6 +186,7 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
     private View mVoiceSearchButton;
     private EditText mSearchView;
     //DSDS: Need to check
+    private boolean mSearchViewVisible = true;
     private boolean mIsDualSimSupported = ContactsUtils.isDualSimSupported();
 
     private View mDialButton2;
@@ -891,7 +892,7 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
         @Override
         public void onCallNumberDirectly(String phoneNumber) {
             Intent intent = null;
-            if (mIsDualSimSupported) {
+            if (ContactsUtils.isDualSimSupported()) {
                 intent = CallUtil.getDualSimCallIntent(phoneNumber,
                         DualSimConstants.DSDS_SLOT_1_ID);
             } else {
@@ -903,7 +904,7 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
 
         @Override
         public void onCallNumberDirectly2(String phoneNumber) {
-            if (mIsDualSimSupported) {
+            if (ContactsUtils.isDualSimSupported()) {
                 Intent intent = CallUtil.getDualSimCallIntent(phoneNumber,
                         DualSimConstants.DSDS_SLOT_2_ID);
                 startActivity(intent);
@@ -920,7 +921,7 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
             Bundle appSearchData, boolean globalSearch) {
         if (mRegularSearchFragment != null && mRegularSearchFragment.isAdded() && !globalSearch) {
             if (mInSearchUi) {
-                if (mSearchView.hasFocus()) {
+                if (mSearchView.hasFocus() && mSearchViewVisible) {
                     showInputMethod(mSearchView.findFocus());
                 } else {
                     mSearchView.requestFocus();

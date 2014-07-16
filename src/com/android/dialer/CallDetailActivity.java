@@ -229,7 +229,7 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
         CallLog.Calls.COUNTRY_ISO,
         CallLog.Calls.GEOCODED_LOCATION,
         CallLog.Calls.NUMBER_PRESENTATION,
-		CallLog_Calls_IMSI,
+        CallLog_Calls_IMSI,
     };
 
     static final int DATE_COLUMN_INDEX = 0;
@@ -325,9 +325,12 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
         mResources = getResources();
 
         mCallTypeHelper = new CallTypeHelper(getResources());
-        mPhoneNumberHelper = new PhoneNumberDisplayHelper(mResources);
+        
+   //     mPhoneNumberHelper = new PhoneNumberDisplayHelper(mResources);
+        mPhoneNumberUtilsWrapper = new PhoneNumberUtilsWrapper(this);
+        mPhoneNumberHelper = new PhoneNumberDisplayHelper(this, mPhoneNumberUtilsWrapper, mResources);
         mPhoneCallDetailsHelper = new PhoneCallDetailsHelper(mResources, mCallTypeHelper,
-                new PhoneNumberUtilsWrapper());
+                mPhoneNumberUtilsWrapper);
         mVoicemailStatusHelper = new VoicemailStatusHelperImpl();
         mAsyncQueryHandler = new CallDetailActivityQueryHandler(this);
         mHeaderTextView = (TextView) findViewById(R.id.header_text);
@@ -498,9 +501,8 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
                 // Cache the details about the phone number.
                 final boolean canPlaceCallsTo =
                     PhoneNumberUtilsWrapper.canPlaceCallsTo(mNumber, numberPresentation);
-                final PhoneNumberUtilsWrapper phoneUtils = new PhoneNumberUtilsWrapper();
-                final boolean isVoicemailNumber = phoneUtils.isVoicemailNumber(mNumber, simIndex);
-                final boolean isSipNumber = phoneUtils.isSipNumber(mNumber);
+                final boolean isVoicemailNumber = mPhoneNumberUtilsWrapper.isVoicemailNumber(mNumber, simIndex);
+                final boolean isSipNumber = mPhoneNumberUtilsWrapper.isSipNumber(mNumber);
 
                 // Let user view contact details if they exist, otherwise add option to create new
                 // contact from this number.
@@ -608,7 +610,7 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
 
                     // The secondary action allows to send an SMS to the number that placed the
                     // call.
-                    if (phoneUtils.canSendSmsTo(mNumber, numberPresentation)) {
+                    if (mPhoneNumberUtilsWrapper.canSendSmsTo(mNumber, numberPresentation)) {
                         entry.setSecondaryAction(
                                 R.drawable.ic_text_holo_light,
                                 new Intent(Intent.ACTION_SENDTO,
@@ -751,7 +753,7 @@ public class CallDetailActivity extends Activity implements ProximitySensorAware
             // If this is not a regular number, there is no point in looking it up in the contacts.
             ContactInfo info =
                     PhoneNumberUtilsWrapper.canPlaceCallsTo(number, numberPresentation)
-                    && !new PhoneNumberUtilsWrapper().isVoicemailNumber(number, simIndex)
+                    && !new PhoneNumberUtilsWrapper(this).isVoicemailNumber(number, simIndex)
                             ? mContactInfoHelper.lookupNumber(number, countryIso)
                             : null;
             if (info == null) {

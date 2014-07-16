@@ -35,8 +35,7 @@ public final class PhoneCallDetailsViews {
     public final ImageView simIndexView;
 
     private PhoneCallDetailsViews(TextView nameView, View callTypeView,
-            CallTypeIconsView callTypeIcons, TextView callTypeAndDate, TextView labelView,
-			ImageView simIndexView) {
+            CallTypeIconsView callTypeIcons, TextView callTypeAndDate, TextView labelView, ImageView simIndexView) {
         this.nameView = nameView;
         this.callTypeView = callTypeView;
         this.callTypeIcons = callTypeIcons;
