@@ -1085,6 +1085,7 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
         if (mDialButton != null) {
             button = (ImageButton)mDialButton;
             if (mIsDualSimSupported) {
+                enabled = true;
                 if (!SimUtils.isSim1Ready(mDialpadFragment.getActivity())) {
                     if (!SimUtils.isSim2Ready(mDialpadFragment.getActivity())) {
                         button.setImageDrawable(mDialButtonBackgroundEmergency);
@@ -1096,29 +1097,29 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
                     button.setImageDrawable(mDialButtonBackgroundActive);
                 }
                 button.setEnabled(enabled);
-            } else {
-                   mDialButton.setEnabled(enabled);
             }
         }
         if (mDialButton2 != null) {
             button = (ImageButton)mDialButton2;
             if (mIsDualSimSupported) {
+                boolean enabled2 = true;
                 if (!SimUtils.isSim2Ready(mDialpadFragment.getActivity())) {
                     if (!SimUtils.isSim1Ready(mDialpadFragment.getActivity())) {
                         button.setImageDrawable(mDialButtonBackgroundEmergency2);
                     } else {
                         button.setImageDrawable(mDialButtonBackgroundInactive2);
-                        enabled = false;
+                        enabled2 = false;
                     }      
                 } else {
                     button.setImageDrawable(mDialButtonBackgroundActive2);
                 }
-                button.setEnabled(enabled);
+                button.setEnabled(enabled2);
             } else {
                 mDialButton2.setVisibility(View.GONE);
                 mDialButton2 = null;
             }
         }
+
     }
 
     @Override
@@ -1141,11 +1142,6 @@ public class DialtactsActivity extends TransactionSafeActivity implements View.O
     public static Intent getAddNumberToContactIntent(CharSequence text) {
         final Intent intent = new Intent(Intent.ACTION_INSERT_OR_EDIT);
         intent.putExtra(Intents.Insert.PHONE, text);
-        if (ContactsUtils.isDualSimSupported()) {
-            intent.setClassName(PHONE_PACKAGE, DualSimConstants.CALL_SETTINGS_CLASS_NAME_DS);
-        } else {
-            intent.setClassName(PHONE_PACKAGE, CALL_SETTINGS_CLASS_NAME);
-        }
         intent.setType(Contacts.CONTENT_ITEM_TYPE);
         return intent;
     }
