@@ -1430,7 +1430,7 @@ public class DialpadFragment extends Fragment
                                     ((DialtactsActivity)getActivity()).getCallOrigin() : null));
                 }
                 startActivity(intent);
-                hideAndClearDialpad(false);
+//                hideAndClearDialpad(false);       //fix SMS06356147, click Dialer apk to add a call again while a call is already in progress, don't hide dial button.
             }
         }
     }
