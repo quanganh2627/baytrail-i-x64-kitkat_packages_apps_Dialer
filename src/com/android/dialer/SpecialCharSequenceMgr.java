@@ -310,7 +310,12 @@ public class SpecialCharSequenceMgr {
 
             List<String> deviceIds = new ArrayList<String>();
             for (int slot = 0; slot < telephonyManager.getPhoneCount(); slot++) {
-                deviceIds.add(telephonyManager.getDeviceId(slot));
+                String deviceid = telephonyManager.getDeviceId(slot);
+                if(deviceid != null) {
+                    deviceIds.add(telephonyManager.getDeviceId(slot));
+                } else {
+                    deviceIds.add("");
+                }
             }
 
             AlertDialog alert = new AlertDialog.Builder(context)
